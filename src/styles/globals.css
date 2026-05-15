@@ -1,0 +1,42 @@
+@import 'tailwindcss-uikit-colors/v4/ios.css';
+@import 'tailwindcss-uikit-colors/selector.css';
+@import 'tailwindcss';
+
+@layer base {
+  * {
+    @apply border-separator;
+  }
+
+  html {
+    color-scheme: light dark;
+  }
+
+  body {
+    @apply bg-system-background text-label antialiased;
+  }
+
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+.scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(142 142 147 / 35%) transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: rgb(142 142 147 / 35%);
+}
