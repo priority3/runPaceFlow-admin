@@ -9,7 +9,7 @@ export default async function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-[#f5f7f8] px-4">
+    <main className="bg-muted/40 flex min-h-dvh items-center justify-center px-4">
       <LoginForm />
     </main>
   )
