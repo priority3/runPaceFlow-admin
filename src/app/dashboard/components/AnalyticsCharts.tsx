@@ -415,3 +415,69 @@ export function LanguageTimezoneSection({ data }: { data: AnalyticsData }) {
     </CollapsibleSection>
   )
 }
+
+// ─── Performance Trend ───────────────────────────────────────────────────────
+
+interface PerformanceTrendData {
+  date: string
+  avgLoadTime: number | null
+  p95LoadTime: number | null
+  avgScrollDepth: number | null
+  sampleSize: number
+}
+
+export function PerformanceTrendSection({ data }: { data: PerformanceTrendData[] }) {
+  if (!data || data.length === 0) return null
+
+  const maxLoadTime = Math.max(...data.filter(d => d.avgLoadTime != null).map(d => d.avgLoadTime!), 1)
+
+  return (
+    <CollapsibleSection title="性能趋势" defaultOpen={false}>
+      <section>
+        <div className="bg-card rounded-lg border p-4 shadow-sm">
+          <div className="flex items-center gap-4 mb-4 text-xs">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+              平均加载时间
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+              P95 加载时间
+            </span>
+            <span className="text-muted-foreground">采样数显示在底部</span>
+          </div>
+          <div className="flex items-end gap-0.5 h-32">
+            {data.map(d => {
+              const avgPct = d.avgLoadTime != null ? (d.avgLoadTime / maxLoadTime) * 100 : 0
+              const p95Pct = d.p95LoadTime != null ? (d.p95LoadTime / maxLoadTime) * 100 : 0
+              return (
+                <div key={d.date} className="flex-1 flex flex-col items-center gap-0.5 group relative">
+                  <div className="w-full flex justify-center">
+                    <div className="hidden group-hover:block absolute bottom-full mb-1 bg-foreground text-background text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10">
+                      {d.date.slice(5)} — 平均 {d.avgLoadTime != null ? `${Math.round(d.avgLoadTime)}ms` : '-'} / P95 {d.p95LoadTime != null ? `${Math.round(d.p95LoadTime)}ms` : '-'} ({d.sampleSize} 次)
+                    </div>
+                  </div>
+                  <div className="w-full flex gap-px items-end justify-center" style={{ height: '100px' }}>
+                    <div
+                      className="bg-blue-500 rounded-t flex-1 max-w-[8px]"
+                      style={{ height: `${Math.max(avgPct, 2)}%` }}
+                    />
+                    <div
+                      className="bg-amber-500 rounded-t flex-1 max-w-[8px]"
+                      style={{ height: `${Math.max(p95Pct, 2)}%` }}
+                    />
+                  </div>
+                  {d.date.slice(-2) === '01' || data.indexOf(d) % Math.ceil(data.length / 7) === 0 ? (
+                    <span className="text-muted-foreground text-[9px] tabular-nums">{d.date.slice(5)}</span>
+                  ) : (
+                    <span className="text-muted-foreground text-[9px] tabular-nums opacity-0">.</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </section>
+    </CollapsibleSection>
+  )
+}

@@ -22,14 +22,24 @@ import {
   LanguageTimezoneSection,
   PageFlowsSection,
   PerformanceSection,
+  PerformanceTrendSection,
   SessionQualitySection,
   WeekComparisonSection,
 } from './AnalyticsCharts'
 import { FunnelSection } from './FunnelSection'
 import { AnalyticsData, DATE_PRESETS, StatCard } from './shared'
 
+interface PerformanceTrendData {
+  date: string
+  avgLoadTime: number | null
+  p95LoadTime: number | null
+  avgScrollDepth: number | null
+  sampleSize: number
+}
+
 export function AnalyticsPanel() {
   const [data, setData] = useState<AnalyticsData | null>(null)
+  const [performanceTrend, setPerformanceTrend] = useState<PerformanceTrendData[]>([])
   const [loading, setLoading] = useState(true)
   const [days, setDays] = useState(14)
 
@@ -37,10 +47,17 @@ export function AnalyticsPanel() {
     const d = rangeDays ?? days
     setLoading(true)
     try {
-      const res = await fetch(`/api/analytics/stats?days=${d}`, { cache: 'no-store' })
-      if (res.ok) {
-        const json = await res.json()
+      const [statsRes, trendRes] = await Promise.all([
+        fetch(`/api/analytics/stats?days=${d}`, { cache: 'no-store' }),
+        fetch(`/api/analytics/performance-trend?days=${d}`, { cache: 'no-store' }),
+      ])
+      if (statsRes.ok) {
+        const json = await statsRes.json()
         setData(json)
+      }
+      if (trendRes.ok) {
+        const trend = await trendRes.json()
+        setPerformanceTrend(trend.data ?? [])
       }
     } catch {}
     setLoading(false)
@@ -259,6 +276,7 @@ export function AnalyticsPanel() {
 
       <SessionQualitySection data={data} />
       <PerformanceSection data={data} />
+      <PerformanceTrendSection data={performanceTrend} />
       <FunnelSection />
       <PageFlowsSection data={data} />
       <LanguageTimezoneSection data={data} />
