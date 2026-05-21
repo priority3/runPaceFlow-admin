@@ -26,6 +26,7 @@ import {
   SessionQualitySection,
   WeekComparisonSection,
 } from './AnalyticsCharts'
+import { ClickHeatmapPanel } from './ClickHeatmapPanel'
 import { ConversionPanel } from './ConversionPanel'
 import { FunnelSection } from './FunnelSection'
 import { JourneyPanel } from './JourneyPanel'
@@ -281,6 +282,7 @@ export function AnalyticsPanel() {
       <PerformanceTrendSection data={performanceTrend} />
       <ConversionPanel />
       <JourneyPanel />
+      <ClickHeatmapPanel />
       <FunnelSection />
       <PageFlowsSection data={data} />
       <LanguageTimezoneSection data={data} />

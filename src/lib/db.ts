@@ -73,6 +73,17 @@ export async function ensureSchema() {
       `CREATE INDEX IF NOT EXISTS idx_page_views_created_at ON page_views(created_at)`,
       `CREATE INDEX IF NOT EXISTS idx_page_views_visitor ON page_views(visitor_id)`,
       `CREATE INDEX IF NOT EXISTS idx_page_views_session ON page_views(session_id)`,
+      `CREATE TABLE IF NOT EXISTS click_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        x INTEGER NOT NULL,
+        y INTEGER NOT NULL,
+        selector TEXT,
+        path TEXT NOT NULL,
+        visitor_id TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_click_events_path ON click_events(path)`,
+      `CREATE INDEX IF NOT EXISTS idx_click_events_created_at ON click_events(created_at)`,
       `CREATE TABLE IF NOT EXISTS scheduler_jobs (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,

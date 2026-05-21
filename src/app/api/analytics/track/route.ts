@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server'
 
 import { trackPageView } from '@/lib/analytics'
+import { ensureSchema, getDb } from '@/lib/db'
 import { getGeoFromIP } from '@/lib/geo'
 import { rateLimit } from '@/lib/rate-limit'
 import { parseUserAgent } from '@/lib/ua-parser'
@@ -35,6 +36,26 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json()
+
+    // Handle click events
+    if (body.type === 'clicks' && Array.isArray(body.clicks)) {
+      await ensureSchema()
+      const db = getDb()
+      for (const click of body.clicks) {
+        await db.execute({
+          sql: `INSERT INTO click_events (x, y, selector, path, visitor_id, created_at)
+                VALUES (?, ?, ?, ?, ?, unixepoch())`,
+          args: [click.x, click.y, click.selector, body.path, body.visitorId],
+        })
+      }
+      return NextResponse.json({ ok: true }, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
     const { path, referrer, visitorId, sessionId, language, timezone, loadTime, scrollDepth, abTests } = body
     const userAgent = request.headers.get('user-agent') || body.userAgent || ''
 
