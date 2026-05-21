@@ -56,6 +56,31 @@ export async function POST(request: Request) {
       })
     }
 
+    // Handle error events
+    if (body.type === 'error') {
+      await ensureSchema()
+      const db = getDb()
+      await db.execute({
+        sql: `INSERT INTO error_events (message, filename, lineno, colno, stack, path, visitor_id, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())`,
+        args: [
+          body.message ?? '',
+          body.filename ?? null,
+          body.lineno ?? null,
+          body.colno ?? null,
+          body.stack ?? null,
+          body.path ?? '/',
+          body.visitorId ?? null,
+        ],
+      })
+      return NextResponse.json({ ok: true }, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
     const { path, referrer, visitorId, sessionId, language, timezone, loadTime, scrollDepth, abTests } = body
     const userAgent = request.headers.get('user-agent') || body.userAgent || ''
 

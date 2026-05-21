@@ -28,6 +28,7 @@ import {
 } from './AnalyticsCharts'
 import { ClickHeatmapPanel } from './ClickHeatmapPanel'
 import { ConversionPanel } from './ConversionPanel'
+import { ErrorTrackingPanel } from './ErrorTrackingPanel'
 import { FunnelSection } from './FunnelSection'
 import { JourneyPanel } from './JourneyPanel'
 import { AnalyticsData, DATE_PRESETS, StatCard } from './shared'
@@ -283,6 +284,7 @@ export function AnalyticsPanel() {
       <ConversionPanel />
       <JourneyPanel />
       <ClickHeatmapPanel />
+      <ErrorTrackingPanel />
       <FunnelSection />
       <PageFlowsSection data={data} />
       <LanguageTimezoneSection data={data} />

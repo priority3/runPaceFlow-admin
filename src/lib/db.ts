@@ -84,6 +84,19 @@ export async function ensureSchema() {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_click_events_path ON click_events(path)`,
       `CREATE INDEX IF NOT EXISTS idx_click_events_created_at ON click_events(created_at)`,
+      `CREATE TABLE IF NOT EXISTS error_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message TEXT NOT NULL,
+        filename TEXT,
+        lineno INTEGER,
+        colno INTEGER,
+        stack TEXT,
+        path TEXT NOT NULL,
+        visitor_id TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_error_events_path ON error_events(path)`,
+      `CREATE INDEX IF NOT EXISTS idx_error_events_created_at ON error_events(created_at)`,
       `CREATE TABLE IF NOT EXISTS scheduler_jobs (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
