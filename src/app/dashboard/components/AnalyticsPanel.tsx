@@ -31,6 +31,7 @@ import { ConversionPanel } from './ConversionPanel'
 import { ErrorTrackingPanel } from './ErrorTrackingPanel'
 import { FunnelSection } from './FunnelSection'
 import { JourneyPanel } from './JourneyPanel'
+import { RealtimeMapPanel } from './RealtimeMapPanel'
 import { AnalyticsData, DATE_PRESETS, StatCard } from './shared'
 
 interface PerformanceTrendData {
@@ -193,6 +194,8 @@ export function AnalyticsPanel() {
           )}
         </div>
       )}
+
+      <RealtimeMapPanel />
 
       {/* Daily Trend Chart */}
       <section>
