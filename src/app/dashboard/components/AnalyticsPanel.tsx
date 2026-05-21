@@ -27,6 +27,7 @@ import {
   WeekComparisonSection,
 } from './AnalyticsCharts'
 import { ClickHeatmapPanel } from './ClickHeatmapPanel'
+import { ConversionGoalsPanel } from './ConversionGoalsPanel'
 import { ConversionPanel } from './ConversionPanel'
 import { ErrorTrackingPanel } from './ErrorTrackingPanel'
 import { FunnelSection } from './FunnelSection'
@@ -285,6 +286,7 @@ export function AnalyticsPanel() {
       <PerformanceSection data={data} />
       <PerformanceTrendSection data={performanceTrend} />
       <ConversionPanel />
+      <ConversionGoalsPanel />
       <JourneyPanel />
       <ClickHeatmapPanel />
       <ErrorTrackingPanel />
