@@ -18,6 +18,7 @@ export type {
   WeekComparison,
   AnomalyResult,
   PerformanceStats,
+  PerformanceTrend,
   ABTestResult,
 } from './analytics-queries'
 
@@ -37,6 +38,7 @@ export {
   getPageFlows,
   detectTrafficAnomaly,
   getPerformanceStats,
+  getPerformanceTrend,
   getABTestStats,
 } from './analytics-queries'
 

@@ -59,6 +59,14 @@ export interface PerformanceStats {
   p95LoadTime: number | null
 }
 
+export interface PerformanceTrend {
+  date: string
+  avgLoadTime: number | null
+  p95LoadTime: number | null
+  avgScrollDepth: number | null
+  sampleSize: number
+}
+
 export interface ABTestResult {
   testName: string
   variants: Array<{
@@ -392,6 +400,55 @@ export async function getPerformanceStats(days = 7): Promise<PerformanceStats> {
     avgScrollDepth: avg?.avg_scroll != null ? Number(avg.avg_scroll) : null,
     p95LoadTime: p95Result.rows[0]?.load_time != null ? Number(p95Result.rows[0].load_time) : null,
   }
+}
+
+// ─── Performance Trend ───────────────────────────────────────────────────────
+
+export async function getPerformanceTrend(days = 14): Promise<PerformanceTrend[]> {
+  await ensureSchema()
+  const db = getDb()
+  const start = todayStart() - (days - 1) * 86400
+
+  const result = await db.execute({
+    sql: `SELECT
+            date(created_at, 'unixepoch', '+8 hours') as day,
+            AVG(load_time) as avg_load,
+            AVG(scroll_depth) as avg_scroll,
+            COUNT(*) as sample_size
+          FROM page_views
+          WHERE created_at >= ? AND load_time IS NOT NULL
+          GROUP BY day
+          ORDER BY day ASC`,
+    args: [start],
+  })
+
+  // Get P95 per day
+  const p95Result = await db.execute({
+    sql: `WITH daily AS (
+            SELECT
+              date(created_at, 'unixepoch', '+8 hours') as day,
+              load_time,
+              ROW_NUMBER() OVER (PARTITION BY date(created_at, 'unixepoch', '+8 hours') ORDER BY load_time) as rn,
+              COUNT(*) OVER (PARTITION BY date(created_at, 'unixepoch', '+8 hours')) as cnt
+            FROM page_views
+            WHERE created_at >= ? AND load_time IS NOT NULL
+          )
+          SELECT day, load_time as p95_load
+          FROM daily
+          WHERE rn = CAST(cnt * 0.95 AS INTEGER) + 1
+          ORDER BY day ASC`,
+    args: [start],
+  })
+
+  const p95Map = new Map(p95Result.rows.map(r => [r.day as string, Number(r.p95_load)]))
+
+  return result.rows.map(r => ({
+    date: r.day as string,
+    avgLoadTime: r.avg_load != null ? Number(r.avg_load) : null,
+    p95LoadTime: p95Map.get(r.day as string) ?? null,
+    avgScrollDepth: r.avg_scroll != null ? Number(r.avg_scroll) : null,
+    sampleSize: Number(r.sample_size),
+  }))
 }
 
 // ─── A/B Test Stats ──────────────────────────────────────────────────────────
