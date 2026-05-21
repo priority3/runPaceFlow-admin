@@ -4,6 +4,7 @@ import { Footprints, Target, Timer, TrendingUp } from 'lucide-react'
 
 import type { MonitorData } from '../DashboardView'
 
+import { ConnectionHealthPanel } from './ConnectionHealthPanel'
 import { LoadingState, ServiceCard, StatCard, SyncCard } from './shared'
 
 interface ActivityStats {
@@ -54,7 +55,7 @@ export function OverviewPanel({
         <StatCard icon={Target} label="运动类型" value={`${stats?.byType.running.total.activities ?? 0} 跑 / ${stats?.byType.cycling.total.activities ?? 0} 骑`} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <ServiceCard
           name="前端"
           status={monitor?.services.find(s => s.name === 'Frontend')?.status ?? 'unknown'}
@@ -70,6 +71,7 @@ export function OverviewPanel({
           status={monitor?.database?.connected ? 'online' : 'offline'}
           type={monitor?.database?.type}
         />
+        <ConnectionHealthPanel />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
