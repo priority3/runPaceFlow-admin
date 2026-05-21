@@ -66,6 +66,7 @@ export async function ensureSchema() {
         timezone TEXT,
         load_time INTEGER,
         scroll_depth INTEGER,
+        ab_tests TEXT,
         created_at INTEGER NOT NULL DEFAULT (unixepoch())
       )`,
       `CREATE INDEX IF NOT EXISTS idx_page_views_path ON page_views(path)`,
@@ -103,6 +104,7 @@ async function migratePageViews(db: ReturnType<typeof getDb>) {
     { name: 'timezone', type: 'TEXT' },
     { name: 'load_time', type: 'INTEGER' },
     { name: 'scroll_depth', type: 'INTEGER' },
+    { name: 'ab_tests', type: 'TEXT' },
   ]
 
   try {

@@ -18,6 +18,7 @@ export type {
   WeekComparison,
   AnomalyResult,
   PerformanceStats,
+  ABTestResult,
 } from './analytics-queries'
 
 export {
@@ -36,6 +37,7 @@ export {
   getPageFlows,
   detectTrafficAnomaly,
   getPerformanceStats,
+  getABTestStats,
 } from './analytics-queries'
 
 // ─── Track Page View ─────────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ export interface TrackPageViewInput {
   timezone?: string
   loadTime?: number | null
   scrollDepth?: number | null
+  abTests?: Record<string, string> | null
 }
 
 function hashIp(ip: string): string {
@@ -73,8 +76,8 @@ export async function trackPageView(input: TrackPageViewInput): Promise<void> {
   const db = getDb()
 
   await db.execute({
-    sql: `INSERT INTO page_views (path, referrer, user_agent, ip_hash, visitor_id, session_id, browser, os, device_type, country, city, region, language, timezone, load_time, scroll_depth, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
+    sql: `INSERT INTO page_views (path, referrer, user_agent, ip_hash, visitor_id, session_id, browser, os, device_type, country, city, region, language, timezone, load_time, scroll_depth, ab_tests, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
     args: [
       input.path,
       input.referrer ?? null,
@@ -92,6 +95,7 @@ export async function trackPageView(input: TrackPageViewInput): Promise<void> {
       input.timezone ?? null,
       input.loadTime ?? null,
       input.scrollDepth ?? null,
+      input.abTests ? JSON.stringify(input.abTests) : null,
     ],
   })
 }

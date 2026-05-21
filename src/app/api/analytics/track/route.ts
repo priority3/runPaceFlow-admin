@@ -35,7 +35,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json()
-    const { path, referrer, visitorId, sessionId, language, timezone, loadTime, scrollDepth } = body
+    const { path, referrer, visitorId, sessionId, language, timezone, loadTime, scrollDepth, abTests } = body
     const userAgent = request.headers.get('user-agent') || body.userAgent || ''
 
     if (!path || typeof path !== 'string') {
@@ -67,6 +67,7 @@ export async function POST(request: Request) {
       timezone,
       loadTime: typeof loadTime === 'number' ? loadTime : null,
       scrollDepth: typeof scrollDepth === 'number' ? scrollDepth : null,
+      abTests: abTests && typeof abTests === 'object' ? abTests : null,
     })
 
     return NextResponse.json({ ok: true }, {
