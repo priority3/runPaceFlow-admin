@@ -19,6 +19,7 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const days = Math.min(Number(searchParams.get('days') || '30'), 90)
+    const format = searchParams.get('format') || 'csv'
 
     const db = getDb()
     const now = Math.floor(Date.now() / 1000)
@@ -45,8 +46,31 @@ export async function GET(request: Request) {
       args: [start],
     })
 
+    const mapped = result.rows.map(r => ({
+      date: r.date,
+      path: r.path,
+      referrer: r.referrer,
+      browser: r.browser,
+      os: r.os,
+      device_type: r.device_type,
+      country: r.country,
+      city: r.city,
+      language: r.language,
+      timezone: r.timezone,
+      views: Number(r.views),
+    }))
+
+    if (format === 'json') {
+      return NextResponse.json(mapped, {
+        headers: {
+          'Content-Disposition': `attachment; filename="analytics-${days}d.json"`,
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
     const header = 'date,path,referrer,browser,os,device_type,country,city,language,timezone,views'
-    const rows = result.rows.map(r =>
+    const rows = mapped.map(r =>
       [r.date, r.path, r.referrer, r.browser, r.os, r.device_type, r.country, r.city, r.language, r.timezone, r.views]
         .map(v => `"${String(v ?? '').replace(/"/g, '""')}"`)
         .join(',')

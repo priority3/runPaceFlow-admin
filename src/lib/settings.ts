@@ -1,4 +1,4 @@
-export type SettingCategory = 'database' | 'sync' | 'ai' | 'map' | 'goals' | 'notification' | 'runtime'
+export type SettingCategory = 'database' | 'sync' | 'ai' | 'map' | 'goals' | 'notification' | 'runtime' | 'analytics'
 
 export type SettingKind = 'text' | 'password' | 'url' | 'number' | 'select'
 
@@ -53,6 +53,11 @@ export const CATEGORY_META: Record<
     label: '运行时',
     description: '端口、站点地址和部署相关变量。',
     accent: 'gray',
+  },
+  analytics: {
+    label: '数据分析',
+    description: '访问分析、数据保留和统计配置。',
+    accent: 'cyan',
   },
 }
 
@@ -283,6 +288,23 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     category: 'runtime',
     kind: 'password',
     sensitive: true,
+  },
+  // Analytics
+  {
+    key: 'ANALYTICS_RETENTION_DAYS',
+    label: '数据保留天数',
+    description: '页面浏览数据自动清理周期，超过此天数的旧数据将被删除。',
+    category: 'analytics',
+    kind: 'number',
+    defaultValue: '90',
+  },
+  {
+    key: 'ANALYTICS_RATE_LIMIT',
+    label: '采集频率限制',
+    description: '每个 IP 每分钟最大请求数，防止异常刷量。',
+    category: 'analytics',
+    kind: 'number',
+    defaultValue: '30',
   },
 ]
 

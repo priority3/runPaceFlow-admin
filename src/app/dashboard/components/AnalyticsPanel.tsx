@@ -99,14 +99,31 @@ export function AnalyticsPanel() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => window.open(`/api/analytics/export?days=${days}`, '_blank')}
-            className="bg-background hover:bg-accent flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors"
-          >
-            <Upload className="h-4 w-4" />
-            导出 CSV
-          </button>
+          <div className="relative group">
+            <button
+              type="button"
+              className="bg-background hover:bg-accent flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors"
+            >
+              <Upload className="h-4 w-4" />
+              导出
+            </button>
+            <div className="absolute right-0 top-full mt-1 w-32 rounded-md border bg-background shadow-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <button
+                type="button"
+                onClick={() => window.open(`/api/analytics/export?days=${days}&format=csv`, '_blank')}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent rounded-t-md"
+              >
+                CSV 格式
+              </button>
+              <button
+                type="button"
+                onClick={() => window.open(`/api/analytics/export?days=${days}&format=json`, '_blank')}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent rounded-b-md"
+              >
+                JSON 格式
+              </button>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => fetchAnalytics()}

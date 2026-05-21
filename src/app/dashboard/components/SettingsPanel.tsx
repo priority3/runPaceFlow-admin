@@ -2,6 +2,7 @@
 
 import { useActionState, useMemo, useState, useTransition } from 'react'
 import {
+  BarChart3,
   Bell,
   Brain,
   Clipboard,
@@ -30,9 +31,10 @@ const CATEGORY_ICONS: Record<SettingCategory, React.ComponentType<{ className?: 
   goals: Target,
   notification: Bell,
   runtime: ServerCog,
+  analytics: BarChart3,
 }
 
-const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'map', 'goals', 'notification', 'runtime']
+const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'map', 'goals', 'notification', 'analytics', 'runtime']
 
 export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
   const [activeCategory, setActiveCategory] = useState<SettingCategory>('database')

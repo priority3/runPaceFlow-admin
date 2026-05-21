@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { manualSync, manualInsights, manualNotify } from '@/lib/scheduler'
 import { generateAnalyticsDigest, sendPushPlus } from '@/lib/notify'
+import { cleanupOldData } from '@/lib/retention'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,9 +34,9 @@ export async function POST(request: Request) {
   }
 
   const { action } = body
-  if (!action || !['sync', 'insights', 'notify', 'analytics-digest'].includes(action)) {
+  if (!action || !['sync', 'insights', 'notify', 'analytics-digest', 'retention-cleanup'].includes(action)) {
     return NextResponse.json(
-      { error: 'action must be one of: sync, insights, notify, analytics-digest' },
+      { error: 'action must be one of: sync, insights, notify, analytics-digest, retention-cleanup' },
       { status: 400 },
     )
   }
@@ -68,6 +69,11 @@ export async function POST(request: Request) {
       }
       const sendResult = await sendPushPlus(pushToken, digest.title, digest.content)
       result = { success: sendResult.success, message: sendResult.success ? 'Analytics digest sent' : (sendResult.message || 'Failed to send') }
+      break
+    }
+    case 'retention-cleanup': {
+      const retention = await cleanupOldData()
+      result = { success: true, message: `Cleaned ${retention.deleted} rows (retention: ${retention.retentionDays} days)` }
       break
     }
     default:

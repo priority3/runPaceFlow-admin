@@ -9,6 +9,7 @@ import cron from 'node-cron'
 
 import { generateInsightsForUncached } from './ai'
 import { generateDailyReport, sendPushPlus } from './notify'
+import { cleanupOldData } from './retention'
 import { ensureDefaultJobs, listJobs, recordJobRun } from './scheduler-config'
 
 const FRONTEND_URL = process.env.RUNPACEFLOW_FRONTEND_URL || 'http://127.0.0.1:3000'
@@ -136,6 +137,23 @@ async function jobDailyReport() {
   }
 }
 
+// ─── Job: Retention Cleanup ─────────────────────────────────────────────────
+
+async function jobRetentionCleanup() {
+  console.log('[Scheduler] Running retention cleanup job...')
+  const startTime = Date.now()
+
+  try {
+    const result = await cleanupOldData()
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    console.log(`[Scheduler] Retention cleanup: deleted ${result.deleted} rows (retention: ${result.retentionDays} days)`)
+    await recordJobRun('retention_cleanup', `success: ${result.deleted} rows deleted in ${elapsed}s`)
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun('retention_cleanup', `error: ${(err as Error).message} (${elapsed}s)`)
+  }
+}
+
 // ─── Manual Triggers ────────────────────────────────────────────────────────
 
 export async function manualSync(): Promise<{ success: boolean; message: string }> {
@@ -180,6 +198,7 @@ const JOB_HANDLERS: Record<string, () => Promise<void>> = {
   sync: jobSyncAndNotify,
   insights: jobGenerateInsights,
   daily_report: jobDailyReport,
+  retention_cleanup: jobRetentionCleanup,
 }
 
 async function setupJobs() {

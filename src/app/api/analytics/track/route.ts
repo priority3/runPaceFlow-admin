@@ -42,12 +42,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'path is required' }, { status: 400 })
     }
 
-    // Extract IP from headers (behind proxy)
-    const ip =
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      ''
-
     // Parse user agent
     const ua = parseUserAgent(userAgent)
 
