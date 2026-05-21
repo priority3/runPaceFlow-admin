@@ -1,8 +1,10 @@
 'use client'
 
-import { Footprints, Target, Timer, TrendingUp } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Activity, Footprints, Shield, Target, Timer, TrendingUp } from 'lucide-react'
 
 import type { MonitorData } from '../DashboardView'
+import { cn } from '@/lib/utils'
 
 import { ConnectionHealthPanel } from './ConnectionHealthPanel'
 import { LoadingState, ServiceCard, StatCard, SyncCard } from './shared'
@@ -21,6 +23,74 @@ interface ActivityStats {
 interface SyncStatus {
   nike: { hasToken: boolean; hasRefreshToken: boolean; latestSync: { startedAt: string; completedAt: string; activitiesSynced: number } | null }
   strava: { hasCredentials: boolean; latestSync: { startedAt: string; completedAt: string; activitiesSynced: number } | null }
+}
+
+function HealthScore({ monitor, syncStatus }: { monitor: MonitorData | null; syncStatus: SyncStatus | null }) {
+  const [healthData, setHealthData] = useState<{ status: string; beacons: { last1h: number } } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/analytics/health', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(setHealthData)
+      .catch(() => {})
+  }, [])
+
+  // Calculate health score (0-100)
+  let score = 0
+  let checks = 0
+
+  // Database (25 points)
+  if (monitor?.database?.connected !== undefined) {
+    checks++
+    if (monitor.database.connected) score += 25
+  }
+
+  // Admin service (25 points)
+  const adminService = monitor?.services.find(s => s.name === 'Admin')
+  if (adminService) {
+    checks++
+    if (adminService.status === 'online') score += 25
+  }
+
+  // Frontend service (25 points)
+  const frontendService = monitor?.services.find(s => s.name === 'Frontend')
+  if (frontendService) {
+    checks++
+    if (frontendService.status === 'online') score += 25
+  }
+
+  // Beacon health (25 points)
+  if (healthData) {
+    checks++
+    if (healthData.status === 'healthy') score += 25
+    else if (healthData.status === 'warning') score += 12
+  }
+
+  const percentage = checks > 0 ? Math.round((score / (checks * 25)) * 100) : 0
+  const label = percentage === 100 ? '健康' : percentage >= 75 ? '良好' : percentage >= 50 ? '一般' : percentage > 0 ? '异常' : '检测中'
+  const color = percentage === 100 ? 'text-emerald-600' : percentage >= 75 ? 'text-emerald-500' : percentage >= 50 ? 'text-amber-500' : 'text-red-500'
+
+  return (
+    <div className="bg-card rounded-lg border p-4 shadow-sm">
+      <div className="flex items-center gap-2 mb-3">
+        <Shield className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">系统健康度</span>
+      </div>
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className={cn('text-3xl font-bold tabular-nums', color)}>{percentage}</span>
+        <span className="text-muted-foreground text-sm">/ 100</span>
+      </div>
+      <div className="bg-muted h-2 rounded-full overflow-hidden mb-2">
+        <div
+          className={cn('h-full rounded-full transition-all duration-500',
+            percentage === 100 ? 'bg-emerald-500' : percentage >= 75 ? 'bg-emerald-400' : percentage >= 50 ? 'bg-amber-400' : 'bg-red-400'
+          )}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <p className="text-muted-foreground text-xs">{label}</p>
+    </div>
+  )
 }
 
 export function OverviewPanel({
@@ -55,7 +125,8 @@ export function OverviewPanel({
         <StatCard icon={Target} label="运动类型" value={`${stats?.byType.running.total.activities ?? 0} 跑 / ${stats?.byType.cycling.total.activities ?? 0} 骑`} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <HealthScore monitor={monitor} syncStatus={syncStatus} />
         <ServiceCard
           name="前端"
           status={monitor?.services.find(s => s.name === 'Frontend')?.status ?? 'unknown'}
