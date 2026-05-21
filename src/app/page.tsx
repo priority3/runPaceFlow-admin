@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-import { Dashboard } from '@/components/dashboard/Dashboard'
+import { DashboardView } from '@/app/dashboard/DashboardView'
 import { isAuthenticated } from '@/lib/auth'
 import { listSettings } from '@/lib/store'
 
@@ -11,5 +11,5 @@ export default async function HomePage() {
 
   const settings = await listSettings()
 
-  return <Dashboard settings={settings} />
+  return <DashboardView settings={settings} />
 }

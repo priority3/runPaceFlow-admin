@@ -48,9 +48,76 @@ export async function ensureSchema() {
         key TEXT,
         created_at INTEGER NOT NULL DEFAULT (unixepoch())
       )`,
+      `CREATE TABLE IF NOT EXISTS page_views (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        path TEXT NOT NULL,
+        referrer TEXT,
+        user_agent TEXT,
+        ip_hash TEXT,
+        visitor_id TEXT,
+        session_id TEXT,
+        browser TEXT,
+        os TEXT,
+        device_type TEXT,
+        country TEXT,
+        city TEXT,
+        region TEXT,
+        language TEXT,
+        timezone TEXT,
+        load_time INTEGER,
+        scroll_depth INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_page_views_path ON page_views(path)`,
+      `CREATE INDEX IF NOT EXISTS idx_page_views_created_at ON page_views(created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_page_views_visitor ON page_views(visitor_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_page_views_session ON page_views(session_id)`,
+      `CREATE TABLE IF NOT EXISTS scheduler_jobs (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        cron_expression TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_run_at INTEGER,
+        last_result TEXT,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`,
     ],
     'write',
   )
 
+  // Migration: add new columns to existing page_views table
+  await migratePageViews(db)
+
   initialized = true
+}
+
+async function migratePageViews(db: ReturnType<typeof getDb>) {
+  const columnsToAdd = [
+    { name: 'browser', type: 'TEXT' },
+    { name: 'os', type: 'TEXT' },
+    { name: 'device_type', type: 'TEXT' },
+    { name: 'country', type: 'TEXT' },
+    { name: 'city', type: 'TEXT' },
+    { name: 'region', type: 'TEXT' },
+    { name: 'language', type: 'TEXT' },
+    { name: 'timezone', type: 'TEXT' },
+    { name: 'load_time', type: 'INTEGER' },
+    { name: 'scroll_depth', type: 'INTEGER' },
+  ]
+
+  try {
+    const result = await db.execute("PRAGMA table_info(page_views)")
+    const existingColumns = new Set(result.rows.map(r => r.name))
+
+    for (const col of columnsToAdd) {
+      if (!existingColumns.has(col.name)) {
+        await db.execute(`ALTER TABLE page_views ADD COLUMN ${col.name} ${col.type}`)
+      }
+    }
+
+    // Add session index if not exists
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_page_views_session ON page_views(session_id)`)
+  } catch {
+    // Table might not exist yet, skip migration
+  }
 }

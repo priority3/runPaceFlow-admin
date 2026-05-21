@@ -2,6 +2,7 @@ FROM oven/bun:1.3.1 AS deps
 WORKDIR /app
 
 COPY package.json ./
+COPY bun.lock ./
 RUN bun install
 
 FROM oven/bun:1.3.1 AS builder

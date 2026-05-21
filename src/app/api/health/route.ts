@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 
 import { ensureSchema } from '@/lib/db'
+import { startScheduler } from '@/lib/scheduler'
 
 export async function GET() {
   try {
     await ensureSchema()
+    startScheduler()
     return NextResponse.json({ ok: true })
   } catch (error) {
     return NextResponse.json(

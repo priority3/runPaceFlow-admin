@@ -1,4 +1,4 @@
-export type SettingCategory = 'database' | 'sync' | 'ai' | 'map' | 'goals' | 'runtime'
+export type SettingCategory = 'database' | 'sync' | 'ai' | 'map' | 'goals' | 'notification' | 'runtime'
 
 export type SettingKind = 'text' | 'password' | 'url' | 'number' | 'select'
 
@@ -43,6 +43,11 @@ export const CATEGORY_META: Record<
     label: '运动目标',
     description: '首页统计卡片使用的周/月目标。',
     accent: 'orange',
+  },
+  notification: {
+    label: '通知推送',
+    description: 'PushPlus 推送通知配置，用于训练日报和同步提醒。',
+    accent: 'pink',
   },
   runtime: {
     label: '运行时',
@@ -232,6 +237,14 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     defaultValue: '28800',
   },
   {
+    key: 'PUSHPLUS_TOKEN',
+    label: 'PushPlus Token',
+    description: 'PushPlus 推送服务 Token，用于微信/邮件通知。获取地址：pushplus.plus',
+    category: 'notification',
+    kind: 'password',
+    sensitive: true,
+  },
+  {
     key: 'NEXT_PUBLIC_APP_URL',
     label: '主应用地址',
     description: '部署后主应用访问地址，可用于脚本或未来集成。',
@@ -240,12 +253,36 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     placeholder: 'https://run.example.com',
   },
   {
+    key: 'NEXT_PUBLIC_ADMIN_URL',
+    label: 'Admin 公开地址',
+    description: '前端通过此地址发送分析数据。Docker 部署时使用 http://admin:3030。',
+    category: 'runtime',
+    kind: 'url',
+    placeholder: 'https://admin.example.com',
+  },
+  {
     key: 'PORT',
     label: '主应用端口',
     description: '容器或 Node 服务监听端口。',
     category: 'runtime',
     kind: 'number',
     defaultValue: '3000',
+  },
+  {
+    key: 'RUNPACEFLOW_ADMIN_URL',
+    label: 'Admin 内网地址',
+    description: '前端通过此地址获取运行时配置。Docker 部署时使用 http://admin:3030。',
+    category: 'runtime',
+    kind: 'url',
+    placeholder: 'http://admin:3030',
+  },
+  {
+    key: 'CONFIG_EXPORT_TOKEN',
+    label: '配置导出 Token',
+    description: '前端访问 /api/settings/export 时的认证 Token，需与前端 CONFIG_EXPORT_TOKEN 一致。',
+    category: 'runtime',
+    kind: 'password',
+    sensitive: true,
   },
 ]
 
