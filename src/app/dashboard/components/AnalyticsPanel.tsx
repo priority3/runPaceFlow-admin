@@ -28,6 +28,7 @@ import {
 } from './AnalyticsCharts'
 import { ConversionPanel } from './ConversionPanel'
 import { FunnelSection } from './FunnelSection'
+import { JourneyPanel } from './JourneyPanel'
 import { AnalyticsData, DATE_PRESETS, StatCard } from './shared'
 
 interface PerformanceTrendData {
@@ -279,6 +280,7 @@ export function AnalyticsPanel() {
       <PerformanceSection data={data} />
       <PerformanceTrendSection data={performanceTrend} />
       <ConversionPanel />
+      <JourneyPanel />
       <FunnelSection />
       <PageFlowsSection data={data} />
       <LanguageTimezoneSection data={data} />
