@@ -26,6 +26,7 @@ import {
   SessionQualitySection,
   WeekComparisonSection,
 } from './AnalyticsCharts'
+import { ConversionPanel } from './ConversionPanel'
 import { FunnelSection } from './FunnelSection'
 import { AnalyticsData, DATE_PRESETS, StatCard } from './shared'
 
@@ -277,6 +278,7 @@ export function AnalyticsPanel() {
       <SessionQualitySection data={data} />
       <PerformanceSection data={data} />
       <PerformanceTrendSection data={performanceTrend} />
+      <ConversionPanel />
       <FunnelSection />
       <PageFlowsSection data={data} />
       <LanguageTimezoneSection data={data} />
