@@ -23,6 +23,8 @@ import { CATEGORY_META, SETTING_DEFINITIONS, type SettingCategory } from '@/lib/
 import type { StoredSetting } from '@/lib/store'
 import { cn, maskValue } from '@/lib/utils'
 
+import { SetupDiagnostic } from './SetupDiagnostic'
+
 const CATEGORY_ICONS: Record<SettingCategory, React.ComponentType<{ className?: string }>> = {
   database: Database,
   sync: Cloud,
@@ -193,6 +195,8 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
           ))}
         </div>
       </section>
+
+      <SetupDiagnostic />
 
       <div className="flex gap-2 overflow-x-auto pb-2">
         {CATEGORY_ORDER.map(cat => {
