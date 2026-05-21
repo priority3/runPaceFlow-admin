@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { requireAuth } from '@/lib/auth'
+import { withAuth } from '@/lib/api-helpers'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,26 +14,14 @@ async function trpcQuery<T>(procedure: string): Promise<T> {
   return json.result?.data?.json as T
 }
 
-export async function GET() {
-  try {
-    await requireAuth()
+export const GET = withAuth(async () => {
+  const [stats, syncStatus] = await Promise.all([
+    trpcQuery('activities.getStats').catch(() => null),
+    trpcQuery('sync.getSyncStatus').catch(() => null),
+  ])
 
-    const [stats, syncStatus] = await Promise.all([
-      trpcQuery('activities.getStats').catch(() => null),
-      trpcQuery('sync.getSyncStatus').catch(() => null),
-    ])
-
-    return NextResponse.json(
-      { stats, syncStatus },
-      { headers: { 'Cache-Control': 'no-store' } },
-    )
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal error' },
-      { status: 500 },
-    )
-  }
-}
+  return NextResponse.json(
+    { stats, syncStatus },
+    { headers: { 'Cache-Control': 'no-store' } },
+  )
+})

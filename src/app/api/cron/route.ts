@@ -2,30 +2,23 @@
  * Cron Manual Trigger API
  *
  * POST /api/cron
- * Body: { action: 'sync' | 'insights' | 'notify' }
+ * Body: { action: 'sync' | 'insights' | 'notify' | 'analytics-digest' | 'retention-cleanup' }
  *
  * Manually triggers scheduled jobs for testing.
  */
 
 import { NextResponse } from 'next/server'
 
-import { requireAuth } from '@/lib/auth'
+import { withAuth } from '@/lib/api-helpers'
 import { manualSync, manualInsights, manualNotify } from '@/lib/scheduler'
 import { generateAnalyticsDigest, sendPushPlus } from '@/lib/notify'
 import { cleanupOldData } from '@/lib/retention'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST(request: Request) {
-  try {
-    await requireAuth()
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
-  }
+const VALID_ACTIONS = ['sync', 'insights', 'notify', 'analytics-digest', 'retention-cleanup'] as const
 
+export const POST = withAuth(async (request) => {
   let body: { action?: string }
   try {
     body = await request.json()
@@ -34,9 +27,9 @@ export async function POST(request: Request) {
   }
 
   const { action } = body
-  if (!action || !['sync', 'insights', 'notify', 'analytics-digest', 'retention-cleanup'].includes(action)) {
+  if (!action || !VALID_ACTIONS.includes(action as typeof VALID_ACTIONS[number])) {
     return NextResponse.json(
-      { error: 'action must be one of: sync, insights, notify, analytics-digest, retention-cleanup' },
+      { error: `action must be one of: ${VALID_ACTIONS.join(', ')}` },
       { status: 400 },
     )
   }
@@ -55,7 +48,6 @@ export async function POST(request: Request) {
       break
     case 'analytics-digest': {
       const digest = await generateAnalyticsDigest()
-      // Read PushPlus token from settings
       const { getDb } = await import('@/lib/db')
       const db = getDb()
       const tokenResult = await db.execute({
@@ -81,4 +73,4 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(result)
-}
+})
