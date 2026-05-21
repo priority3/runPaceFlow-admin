@@ -69,6 +69,56 @@ export async function GET(request: Request) {
       })
     }
 
+    if (format === 'tsv') {
+      const header = 'date\t path\t referrer\t browser\t os\t device_type\t country\t city\t language\t timezone\t views'
+      const rows = mapped.map(r =>
+        [r.date, r.path, r.referrer, r.browser, r.os, r.device_type, r.country, r.city, r.language, r.timezone, r.views]
+          .map(v => String(v ?? ''))
+          .join('\t')
+      )
+
+      const tsv = [header, ...rows].join('\n')
+
+      return new Response(tsv, {
+        headers: {
+          'Content-Type': 'text/tab-separated-values; charset=utf-8',
+          'Content-Disposition': `attachment; filename="analytics-${days}d.tsv"`,
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
+    if (format === 'summary') {
+      // Summary format - aggregated stats
+      const summary = {
+        period: `${days} days`,
+        totalViews: mapped.reduce((sum, r) => sum + r.views, 0),
+        uniquePaths: new Set(mapped.map(r => r.path)).size,
+        topPages: mapped.slice(0, 10),
+        byCountry: Object.entries(
+          mapped.reduce((acc, r) => {
+            const country = (r.country as string) || 'Unknown'
+            acc[country] = (acc[country] || 0) + r.views
+            return acc
+          }, {} as Record<string, number>)
+        ).sort((a, b) => b[1] - a[1]).slice(0, 10),
+        byBrowser: Object.entries(
+          mapped.reduce((acc, r) => {
+            const browser = (r.browser as string) || 'Unknown'
+            acc[browser] = (acc[browser] || 0) + r.views
+            return acc
+          }, {} as Record<string, number>)
+        ).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      }
+
+      return NextResponse.json(summary, {
+        headers: {
+          'Content-Disposition': `attachment; filename="analytics-summary-${days}d.json"`,
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
     const header = 'date,path,referrer,browser,os,device_type,country,city,language,timezone,views'
     const rows = mapped.map(r =>
       [r.date, r.path, r.referrer, r.browser, r.os, r.device_type, r.country, r.city, r.language, r.timezone, r.views]

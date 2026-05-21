@@ -132,20 +132,34 @@ export function AnalyticsPanel() {
               <Upload className="h-4 w-4" />
               导出
             </button>
-            <div className="absolute right-0 top-full mt-1 w-32 rounded-md border bg-background shadow-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+            <div className="absolute right-0 top-full mt-1 w-36 rounded-md border bg-background shadow-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
               <button
                 type="button"
                 onClick={() => window.open(`/api/analytics/export?days=${days}&format=csv`, '_blank')}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-accent rounded-t-md"
+                className="w-full text-left px-3 py-2 text-xs hover:bg-accent rounded-t-md"
               >
-                CSV 格式
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => window.open(`/api/analytics/export?days=${days}&format=tsv`, '_blank')}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-accent"
+              >
+                TSV (Excel)
               </button>
               <button
                 type="button"
                 onClick={() => window.open(`/api/analytics/export?days=${days}&format=json`, '_blank')}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-accent rounded-b-md"
+                className="w-full text-left px-3 py-2 text-xs hover:bg-accent"
               >
-                JSON 格式
+                JSON
+              </button>
+              <button
+                type="button"
+                onClick={() => window.open(`/api/analytics/export?days=${days}&format=summary`, '_blank')}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-accent rounded-b-md"
+              >
+                摘要报告
               </button>
             </div>
           </div>
