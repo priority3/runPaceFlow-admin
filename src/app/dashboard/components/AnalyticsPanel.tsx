@@ -37,6 +37,8 @@ import { JourneyPanel } from './JourneyPanel'
 import { RealtimeMapPanel } from './RealtimeMapPanel'
 import { AnalyticsData, DATE_PRESETS, StatCard } from './shared'
 
+import { InsightsPanel } from './InsightsPanel'
+
 interface PerformanceTrendData {
   date: string
   avgLoadTime: number | null
@@ -175,6 +177,8 @@ export function AnalyticsPanel() {
       </header>
 
       {anomalyBanner}
+
+      <InsightsPanel />
 
       <AnalyticsSummary />
 
