@@ -17,10 +17,13 @@ export type {
   ExitPageStat,
   WeekComparison,
   AnomalyResult,
+} from './analytics-queries'
+
+export type {
   PerformanceStats,
   PerformanceTrend,
   ABTestResult,
-} from './analytics-queries'
+} from './analytics-advanced'
 
 export {
   getBrowserStats,
@@ -37,10 +40,13 @@ export {
   getWeekComparison,
   getPageFlows,
   detectTrafficAnomaly,
+} from './analytics-queries'
+
+export {
   getPerformanceStats,
   getPerformanceTrend,
   getABTestStats,
-} from './analytics-queries'
+} from './analytics-advanced'
 
 // ─── Track Page View ─────────────────────────────────────────────────────────
 
