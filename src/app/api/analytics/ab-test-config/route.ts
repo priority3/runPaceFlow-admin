@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server'
 
-import { requireAuth } from '@/lib/auth'
+import { withAuth } from '@/lib/api-helpers'
 import { ensureSchema, getDb } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -25,124 +25,80 @@ interface ABTestConfig {
   createdAt: string
 }
 
-export async function GET() {
-  try {
-    await requireAuth()
-    await ensureSchema()
+export const GET = withAuth(async () => {
+  await ensureSchema()
 
-    const db = getDb()
-    const result = await db.execute('SELECT * FROM ab_test_configs ORDER BY created_at DESC')
+  const db = getDb()
+  const result = await db.execute('SELECT * FROM ab_test_configs ORDER BY created_at DESC')
 
-    const tests: ABTestConfig[] = result.rows.map(r => ({
-      id: r.id as string,
-      name: r.name as string,
-      variants: JSON.parse(r.variants as string),
-      traffic: Number(r.traffic),
-      enabled: Boolean(r.enabled),
-      createdAt: new Date((r.created_at as number) * 1000).toISOString(),
-    }))
+  const tests: ABTestConfig[] = result.rows.map(r => ({
+    id: r.id as string,
+    name: r.name as string,
+    variants: JSON.parse(r.variants as string),
+    traffic: Number(r.traffic),
+    enabled: Boolean(r.enabled),
+    createdAt: new Date((r.created_at as number) * 1000).toISOString(),
+  }))
 
-    return NextResponse.json({ tests })
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal error' },
-      { status: 500 },
-    )
+  return NextResponse.json({ tests })
+})
+
+export const POST = withAuth(async (request) => {
+  await ensureSchema()
+
+  const body = await request.json()
+  const { name, variants } = body
+
+  if (!name || !Array.isArray(variants) || variants.length < 2) {
+    return NextResponse.json({ error: 'name and at least 2 variants required' }, { status: 400 })
   }
-}
 
-export async function POST(request: Request) {
-  try {
-    await requireAuth()
-    await ensureSchema()
+  const id = `ab_${Date.now().toString(36)}`
+  const db = getDb()
 
-    const body = await request.json()
-    const { name, variants } = body
+  await db.execute({
+    sql: `INSERT INTO ab_test_configs (id, name, variants, traffic, enabled, created_at)
+          VALUES (?, ?, ?, 100, 1, unixepoch())`,
+    args: [id, name, JSON.stringify(variants)],
+  })
 
-    if (!name || !Array.isArray(variants) || variants.length < 2) {
-      return NextResponse.json({ error: 'name and at least 2 variants required' }, { status: 400 })
-    }
+  return NextResponse.json({ ok: true, id })
+})
 
-    const id = `ab_${Date.now().toString(36)}`
-    const db = getDb()
+export const PATCH = withAuth(async (request) => {
+  await ensureSchema()
 
-    await db.execute({
-      sql: `INSERT INTO ab_test_configs (id, name, variants, traffic, enabled, created_at)
-            VALUES (?, ?, ?, 100, 1, unixepoch())`,
-      args: [id, name, JSON.stringify(variants)],
-    })
+  const body = await request.json()
+  const { id, enabled } = body
 
-    return NextResponse.json({ ok: true, id })
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal error' },
-      { status: 500 },
-    )
+  if (!id) {
+    return NextResponse.json({ error: 'id required' }, { status: 400 })
   }
-}
 
-export async function PATCH(request: Request) {
-  try {
-    await requireAuth()
-    await ensureSchema()
+  const db = getDb()
+  await db.execute({
+    sql: 'UPDATE ab_test_configs SET enabled = ? WHERE id = ?',
+    args: [enabled ? 1 : 0, id],
+  })
 
-    const body = await request.json()
-    const { id, enabled } = body
+  return NextResponse.json({ ok: true })
+})
 
-    if (!id) {
-      return NextResponse.json({ error: 'id required' }, { status: 400 })
-    }
+export const DELETE = withAuth(async (request) => {
+  await ensureSchema()
 
-    const db = getDb()
-    await db.execute({
-      sql: 'UPDATE ab_test_configs SET enabled = ? WHERE id = ?',
-      args: [enabled ? 1 : 0, id],
-    })
+  const body = await request.json()
+  const { id } = body
 
-    return NextResponse.json({ ok: true })
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal error' },
-      { status: 500 },
-    )
+  if (!id) {
+    return NextResponse.json({ error: 'id required' }, { status: 400 })
   }
-}
 
-export async function DELETE(request: Request) {
-  try {
-    await requireAuth()
-    await ensureSchema()
+  const db = getDb()
+  await db.execute({
+    sql: 'DELETE FROM ab_test_configs WHERE id = ?',
+    args: [id],
+  })
 
-    const body = await request.json()
-    const { id } = body
-
-    if (!id) {
-      return NextResponse.json({ error: 'id required' }, { status: 400 })
-    }
-
-    const db = getDb()
-    await db.execute({
-      sql: 'DELETE FROM ab_test_configs WHERE id = ?',
-      args: [id],
-    })
-
-    return NextResponse.json({ ok: true })
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal error' },
-      { status: 500 },
-    )
-  }
-}
+  return NextResponse.json({ ok: true })
+})
