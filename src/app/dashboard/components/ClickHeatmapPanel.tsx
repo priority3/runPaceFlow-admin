@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { MousePointerClick } from 'lucide-react'
 
-import { CollapsibleSection } from './shared'
+import { CollapsibleSection, CollapsibleSkeleton } from './shared'
 
 interface ClickData {
   x: number
@@ -38,7 +38,7 @@ export function ClickHeatmapPanel() {
     fetchData()
   }, [selectedPath])
 
-  if (loading) return null
+  if (loading) return <CollapsibleSkeleton />
   if (!stats || stats.totalClicks === 0) return null
 
   const maxCount = Math.max(...clicks.map(c => c.count), 1)

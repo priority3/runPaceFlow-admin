@@ -5,7 +5,7 @@ import { Target, TrendingUp } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
-import { CollapsibleSection } from './shared'
+import { CollapsibleSection, CollapsibleSkeleton } from './shared'
 
 interface ABTestVariant {
   name: string
@@ -38,7 +38,7 @@ export function ConversionPanel() {
     fetchData()
   }, [])
 
-  if (loading) return null
+  if (loading) return <CollapsibleSkeleton />
   if (abTests.length === 0) return null
 
   return (

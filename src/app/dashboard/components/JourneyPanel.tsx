@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Route, ArrowRight } from 'lucide-react'
 
-import { CollapsibleSection } from './shared'
+import { CollapsibleSection, CollapsibleSkeleton } from './shared'
 
 interface JourneyPath {
   from: string
@@ -35,7 +35,7 @@ export function JourneyPanel() {
     fetchData()
   }, [])
 
-  if (loading) return null
+  if (loading) return <CollapsibleSkeleton />
   if (!journey || journey.paths.length === 0) return null
 
   return (

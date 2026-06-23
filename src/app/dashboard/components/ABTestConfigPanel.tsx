@@ -6,7 +6,7 @@ import { FlaskConical, Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 
-import { CollapsibleSection } from './shared'
+import { CollapsibleSection, CollapsibleSkeleton } from './shared'
 
 interface ABTest {
   id: string
@@ -109,7 +109,7 @@ export function ABTestConfigPanel() {
     }
   }
 
-  if (loading) return null
+  if (loading) return <CollapsibleSkeleton />
 
   return (
     <CollapsibleSection title="A/B 测试配置" defaultOpen={false}>

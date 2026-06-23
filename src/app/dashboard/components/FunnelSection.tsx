@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 
-import { CollapsibleSection } from './shared'
+import { CollapsibleSection, CollapsibleSkeleton } from './shared'
 
 interface FunnelStep {
   path: string
@@ -38,7 +38,7 @@ export function FunnelSection() {
     fetchFunnels()
   }, [])
 
-  if (loading) return null
+  if (loading) return <CollapsibleSkeleton />
   if (funnels.length === 0) return null
 
   return (

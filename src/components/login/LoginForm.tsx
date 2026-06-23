@@ -21,18 +21,22 @@ export function LoginForm() {
       </div>
 
       <form action={formAction} className="space-y-4">
-        <label className="block">
+        <label htmlFor="admin-password" className="block">
           <span className="text-muted-foreground mb-2 block text-sm">管理密码</span>
           <input
+            id="admin-password"
             name="password"
             type="password"
+            required
             autoComplete="current-password"
+            aria-invalid={state?.error ? true : undefined}
+            aria-describedby={state?.error ? 'login-error' : undefined}
             className="border-input bg-background placeholder:text-muted-foreground focus:border-ring focus:ring-ring/20 h-11 w-full rounded-md border px-3 outline-none transition-colors focus:ring-[3px]"
           />
         </label>
 
         {state?.error && (
-          <p className="bg-destructive/10 text-destructive rounded-md border border-destructive/20 px-3 py-2 text-sm">
+          <p id="login-error" role="alert" className="bg-destructive/10 text-destructive rounded-md border border-destructive/20 px-3 py-2 text-sm">
             {state.error}
           </p>
         )}

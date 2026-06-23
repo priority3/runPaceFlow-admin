@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   BarChart3,
   Eye,
@@ -133,45 +133,7 @@ export function AnalyticsPanel() {
               </button>
             ))}
           </div>
-          <div className="relative group">
-            <button
-              type="button"
-              className="bg-background hover:bg-accent flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors"
-            >
-              <Upload className="h-4 w-4" />
-              导出
-            </button>
-            <div className="absolute right-0 top-full mt-1 w-36 rounded-md border bg-background shadow-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-              <button
-                type="button"
-                onClick={() => window.open(`/api/analytics/export?days=${days}&format=csv`, '_blank')}
-                className="w-full text-left px-3 py-2 text-xs hover:bg-accent rounded-t-md"
-              >
-                CSV
-              </button>
-              <button
-                type="button"
-                onClick={() => window.open(`/api/analytics/export?days=${days}&format=tsv`, '_blank')}
-                className="w-full text-left px-3 py-2 text-xs hover:bg-accent"
-              >
-                TSV (Excel)
-              </button>
-              <button
-                type="button"
-                onClick={() => window.open(`/api/analytics/export?days=${days}&format=json`, '_blank')}
-                className="w-full text-left px-3 py-2 text-xs hover:bg-accent"
-              >
-                JSON
-              </button>
-              <button
-                type="button"
-                onClick={() => window.open(`/api/analytics/export?days=${days}&format=summary`, '_blank')}
-                className="w-full text-left px-3 py-2 text-xs hover:bg-accent rounded-b-md"
-              >
-                摘要报告
-              </button>
-            </div>
-          </div>
+          <ExportMenu days={days} />
           <button
             type="button"
             onClick={() => fetchAnalytics()}
@@ -332,6 +294,76 @@ function LoadingState() {
   return (
     <div className="flex items-center justify-center py-20">
       <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
+
+const EXPORT_FORMATS: Array<{ format: string; label: string }> = [
+  { format: 'csv', label: 'CSV' },
+  { format: 'tsv', label: 'TSV (Excel)' },
+  { format: 'json', label: 'JSON' },
+  { format: 'summary', label: '摘要报告' },
+]
+
+/**
+ * 导出下拉菜单。
+ * Reason: 原实现用 group-hover 触发，触屏设备无 hover 无法打开、键盘也不可达；
+ * 改为 click 触发 + 点击外部关闭 + Esc 关闭 + aria 属性，保证可访问性。
+ */
+function ExportMenu({ days }: { days: number }) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  function handleExport(format: string) {
+    window.open(`/api/analytics/export?days=${days}&format=${format}`, '_blank')
+    setOpen(false)
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="bg-background hover:bg-accent flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors"
+      >
+        <Upload className="h-4 w-4" />
+        导出
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1 w-36 rounded-md border bg-background shadow-md z-50 overflow-hidden">
+          {EXPORT_FORMATS.map(({ format, label }) => (
+            <button
+              key={format}
+              type="button"
+              role="menuitem"
+              onClick={() => handleExport(format)}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-accent"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

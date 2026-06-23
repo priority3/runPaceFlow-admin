@@ -48,6 +48,8 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
   // Reason: 用 useActionState 接住 saveSettingsAction 的返回值，才能展示保存成功/失败反馈
   const [saveState, saveAction, saving] = useActionState(saveSettingsAction, null)
   const [exporting, startExportTransition] = useTransition()
+  // Reason: 应用预设会立即覆盖并保存当前配置，需二次确认；记录待确认的预设名
+  const [confirmingPreset, setConfirmingPreset] = useState<string | null>(null)
 
   // Reason: saveState 变化时弹一次 toast；用 savedAt 去重，避免重渲染重复触发
   const lastSavedAtRef = useRef<number>(0)
@@ -87,6 +89,7 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
   }
 
   async function applyPreset(preset: Record<string, string | undefined>) {
+    setConfirmingPreset(null)
     const form = document.getElementById('settings-form') as HTMLFormElement | null
     if (!form) return
 
@@ -197,15 +200,39 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
                 <span className="text-sm font-medium">{preset.name}</span>
               </div>
               <p className="text-muted-foreground text-xs mb-3">{preset.desc}</p>
-              <button
-                type="button"
-                onClick={() => applyPreset(preset.values)}
-                disabled={saving}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium shadow-sm transition-colors disabled:opacity-50"
-              >
-                <Zap className="h-3 w-3" />
-                应用预设
-              </button>
+              {confirmingPreset === preset.name ? (
+                <div className="space-y-2">
+                  <p className="text-amber-600 text-xs">将覆盖当前配置并立即保存？</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => applyPreset(preset.values)}
+                      disabled={saving}
+                      className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium shadow-sm transition-colors disabled:opacity-50"
+                    >
+                      <Zap className="h-3 w-3" />
+                      确认应用
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingPreset(null)}
+                      className="bg-background hover:bg-accent flex h-8 items-center rounded-md border px-3 text-xs shadow-sm transition-colors"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingPreset(preset.name)}
+                  disabled={saving}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium shadow-sm transition-colors disabled:opacity-50"
+                >
+                  <Zap className="h-3 w-3" />
+                  应用预设
+                </button>
+              )}
             </div>
           ))}
         </div>

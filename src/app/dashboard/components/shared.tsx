@@ -118,3 +118,19 @@ export function CollapsibleSection({ title, defaultOpen = true, children }: { ti
     </div>
   )
 }
+
+/**
+ * 折叠面板的加载占位。
+ * Reason: 这些折叠子面板原本在 loading 时 return null，数据到达后突然出现把下方内容
+ * 往下推，造成布局跳动。加载阶段先渲染一个等高的折叠态占位（标题骨架），稳定布局。
+ */
+export function CollapsibleSkeleton() {
+  return (
+    <div className="bg-card rounded-lg border shadow-sm overflow-hidden" aria-hidden>
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="bg-muted h-4 w-32 animate-pulse rounded" />
+        <div className="bg-muted h-4 w-4 animate-pulse rounded" />
+      </div>
+    </div>
+  )
+}
