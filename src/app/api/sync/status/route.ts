@@ -1,3 +1,11 @@
+/**
+ * 同步状态 API
+ *
+ * GET /api/sync/status
+ *
+ * 返回 Nike/Strava 最近一次同步日志 + 凭据配置情况,供 admin UI 展示。
+ */
+
 import { desc, eq } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 
@@ -8,21 +16,10 @@ import { getRuntimeSettings } from '@/lib/runtime-config'
 
 export const dynamic = 'force-dynamic'
 
-const FRONTEND_URL = process.env.RUNPACEFLOW_FRONTEND_URL || 'http://127.0.0.1:3000'
-
-async function trpcQuery<T>(procedure: string): Promise<T> {
-  const url = `${FRONTEND_URL}/api/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify({}))}`
-  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10000) })
-  if (!res.ok) throw new Error(`tRPC ${procedure} failed: ${res.status}`)
-  const json = await res.json()
-  return json.result?.data?.json as T
-}
-
-// Reason: syncStatus 改为查 admin 本地(同步已迁到 admin),不再依赖主站 sync 路由。
-// 活动统计 stats 仍读主站 getStats —— 主站读的是同一个共享库,数据一致,避免搬运统计辅助代码。
-async function getSyncStatus() {
+export const GET = withAuth(async () => {
   const db = await getActivitiesDb()
   const settings = await getRuntimeSettings()
+
   const latest = async (source: string) => {
     const rows = await db
       .select()
@@ -32,7 +29,8 @@ async function getSyncStatus() {
       .limit(1)
     return rows[0] || null
   }
-  return {
+
+  return NextResponse.json({
     nike: {
       hasToken: !!(settings.NIKE_REFRESH_TOKEN || settings.NIKE_ACCESS_TOKEN),
       hasRefreshToken: !!settings.NIKE_REFRESH_TOKEN,
@@ -46,17 +44,5 @@ async function getSyncStatus() {
       ),
       latestSync: await latest('strava'),
     },
-  }
-}
-
-export const GET = withAuth(async () => {
-  const [stats, syncStatus] = await Promise.all([
-    trpcQuery('activities.getStats').catch(() => null),
-    getSyncStatus().catch(() => null),
-  ])
-
-  return NextResponse.json(
-    { stats, syncStatus },
-    { headers: { 'Cache-Control': 'no-store' } },
-  )
+  })
 })

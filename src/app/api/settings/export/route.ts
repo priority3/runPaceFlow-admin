@@ -10,7 +10,11 @@ export async function GET(request: NextRequest) {
   }
 
   const includeEmpty = request.nextUrl.searchParams.get('includeEmpty') === '1'
-  const envText = renderEnvText(await exportSettings({ includeEmpty }))
+  const allSettings = await exportSettings({ includeEmpty })
+  // Reason: DATABASE_URL 是 admin 自身的配置库路径,不应导出给主站——主站有自己的
+  // DATABASE_URL(指向共享库),被覆盖会导致连接错误。
+  const settings = allSettings.filter((s) => s.key !== 'DATABASE_URL')
+  const envText = renderEnvText(settings)
 
   return new Response(`${envText}\n`, {
     headers: {

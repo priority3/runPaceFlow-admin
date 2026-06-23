@@ -11,8 +11,7 @@ import { generateInsightsForUncached } from './ai'
 import { generateDailyReport, sendPushPlus } from './notify'
 import { cleanupOldData } from './retention'
 import { ensureDefaultJobs, listJobs, recordJobRun } from './scheduler-config'
-
-const FRONTEND_URL = process.env.RUNPACEFLOW_FRONTEND_URL || 'http://127.0.0.1:3000'
+import { performSync } from './sync/service'
 
 let schedulerStarted = false
 let scheduledTasks: cron.ScheduledTask[] = []
@@ -22,19 +21,15 @@ let scheduledTasks: cron.ScheduledTask[] = []
 async function syncActivities(): Promise<number> {
   let totalSynced = 0
 
+  // Reason: admin 已接管同步,直接进程内调用 performSync(增量),不再 HTTP fetch 主站。
   // Sync Nike
   try {
-    const res = await fetch(`${FRONTEND_URL}/api/trpc/sync.syncNike`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ json: { limit: 50 } }),
-      signal: AbortSignal.timeout(60000),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      const count = data.result?.data?.json?.count ?? 0
-      totalSynced += count
-      if (count > 0) console.log(`[Scheduler] Nike sync: ${count} activities`)
+    const result = await performSync({ source: 'nike', limit: 50 })
+    if (result.success && result.activitiesCount > 0) {
+      totalSynced += result.activitiesCount
+      console.log(`[Scheduler] Nike sync: ${result.activitiesCount} activities`)
+    } else if (!result.success) {
+      console.warn('[Scheduler] Nike sync failed:', result.errorMessage)
     }
   } catch (err) {
     console.warn('[Scheduler] Nike sync failed:', (err as Error).message)
@@ -42,17 +37,12 @@ async function syncActivities(): Promise<number> {
 
   // Sync Strava
   try {
-    const res = await fetch(`${FRONTEND_URL}/api/trpc/sync.syncStrava`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ json: { limit: 50 } }),
-      signal: AbortSignal.timeout(60000),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      const count = data.result?.data?.json?.count ?? 0
-      totalSynced += count
-      if (count > 0) console.log(`[Scheduler] Strava sync: ${count} activities`)
+    const result = await performSync({ source: 'strava', limit: 50 })
+    if (result.success && result.activitiesCount > 0) {
+      totalSynced += result.activitiesCount
+      console.log(`[Scheduler] Strava sync: ${result.activitiesCount} activities`)
+    } else if (!result.success) {
+      console.warn('[Scheduler] Strava sync failed:', result.errorMessage)
     }
   } catch (err) {
     console.warn('[Scheduler] Strava sync failed:', (err as Error).message)
