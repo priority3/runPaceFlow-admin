@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useMemo, useState, useTransition } from 'react'
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import {
   BarChart3,
   Bell,
@@ -22,6 +22,7 @@ import { exportEnvAction, importEnvAction, saveSettingsAction } from '@/app/acti
 import { CATEGORY_META, SETTING_DEFINITIONS, type SettingCategory } from '@/lib/settings'
 import type { StoredSetting } from '@/lib/store'
 import { cn, maskValue } from '@/lib/utils'
+import { useToast } from '@/components/ui/toast'
 
 import { SetupDiagnostic } from './SetupDiagnostic'
 
@@ -39,13 +40,34 @@ const CATEGORY_ICONS: Record<SettingCategory, React.ComponentType<{ className?: 
 const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'map', 'goals', 'notification', 'analytics', 'runtime']
 
 export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
+  const { success, error: toastError, info } = useToast()
   const [activeCategory, setActiveCategory] = useState<SettingCategory>('database')
   const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({})
   const [exportText, setExportText] = useState('')
   const [importState, importAction, importing] = useActionState(importEnvAction, null)
-  const [saving, startSaveTransition] = useTransition()
+  // Reason: 用 useActionState 接住 saveSettingsAction 的返回值，才能展示保存成功/失败反馈
+  const [saveState, saveAction, saving] = useActionState(saveSettingsAction, null)
   const [exporting, startExportTransition] = useTransition()
-  const [presetResult, setPresetResult] = useState<string | null>(null)
+
+  // Reason: saveState 变化时弹一次 toast；用 savedAt 去重，避免重渲染重复触发
+  const lastSavedAtRef = useRef<number>(0)
+  useEffect(() => {
+    if (!saveState || saveState.savedAt === lastSavedAtRef.current) return
+    lastSavedAtRef.current = saveState.savedAt
+    if (saveState.ok) {
+      success(saveState.message)
+    } else {
+      toastError(saveState.message)
+    }
+  }, [saveState, success, toastError])
+
+  // 导入成功后弹 toast
+  const lastImportRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!importState?.message || importState.message === lastImportRef.current) return
+    lastImportRef.current = importState.message
+    success(importState.message)
+  }, [importState, success])
 
   const settingsByKey = useMemo(() => new Map(settings.map(s => [s.key, s])), [settings])
 
@@ -76,9 +98,9 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
       }
     }
 
-    startSaveTransition(() => form.requestSubmit())
-    setPresetResult('预设已应用，请检查并补充敏感信息（如 API Key）')
-    setTimeout(() => setPresetResult(null), 5000)
+    // Reason: 表单 action 已绑定 saveAction，requestSubmit 会自动触发保存并弹出成功 toast
+    form.requestSubmit()
+    info('预设已填入并保存，请检查并补充敏感信息（如 API Key）')
   }
 
   return (
@@ -90,20 +112,13 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
         </div>
         <button
           type="button"
-          onClick={() => { const f = document.getElementById('settings-form') as HTMLFormElement | null; if (f) startSaveTransition(() => f.requestSubmit()) }}
+          onClick={() => { const f = document.getElementById('settings-form') as HTMLFormElement | null; f?.requestSubmit() }}
           disabled={saving}
           className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
         >
           {saving ? '保存中...' : '保存配置'}
         </button>
       </header>
-
-      {/* Preset Result Toast */}
-      {presetResult && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          {presetResult}
-        </div>
-      )}
 
       {/* Quick Setup Presets */}
       <section>
@@ -226,7 +241,7 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
 
       <p className="text-muted-foreground text-sm">{activeMeta.description}</p>
 
-      <form id="settings-form" action={saveSettingsAction} className="bg-card rounded-lg border shadow-sm overflow-hidden">
+      <form id="settings-form" action={saveAction} className="bg-card rounded-lg border shadow-sm overflow-hidden">
         {activeDefinitions.map(def => {
           const setting = settingsByKey.get(def.key)
           const value = setting?.value ?? def.defaultValue ?? ''
@@ -271,7 +286,6 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
           <form action={importAction} className="space-y-3">
             <textarea name="envText" rows={4} placeholder="DATABASE_URL=libsql://..."
               className="border-input bg-background placeholder:text-muted-foreground focus:border-ring scrollbar-subtle w-full resize-none rounded-md border p-3 font-mono text-xs shadow-sm outline-none focus:ring-[3px]" />
-            {importState?.message && <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">{importState.message}</p>}
             <button type="submit" disabled={importing}
               className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-9 w-full items-center justify-center gap-2 rounded-md text-sm font-medium shadow-sm disabled:opacity-50">
               <Upload className="h-4 w-4" />{importing ? '导入中...' : '导入'}

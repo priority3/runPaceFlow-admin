@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 
 import { cn, formatDateTime } from '@/lib/utils'
+import { useToast } from '@/components/ui/toast'
 
 import { LoadingState } from './shared'
 
@@ -37,13 +38,14 @@ const CRON_PRESETS: Array<{ label: string; value: string }> = [
 ]
 
 export function SchedulerPanel() {
+  const { success, error: toastError } = useToast()
   const [jobs, setJobs] = useState<SchedulerJob[]>([])
   const [loading, setLoading] = useState(true)
   const [editingJob, setEditingJob] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [customCron, setCustomCron] = useState('')
   const [saving, setSaving] = useState(false)
-  const [triggerResult, setTriggerResult] = useState<{ action: string; message: string } | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const fetchJobs = async () => {
     setLoading(true)
@@ -52,8 +54,13 @@ export function SchedulerPanel() {
       if (res.ok) {
         const data = await res.json()
         setJobs(data.jobs)
+        setLoadError(null)
+      } else {
+        setLoadError(`加载任务失败 (HTTP ${res.status})`)
       }
-    } catch {}
+    } catch (e) {
+      setLoadError(`加载任务失败: ${e instanceof Error ? e.message : '网络错误'}`)
+    }
     setLoading(false)
   }
 
@@ -74,32 +81,45 @@ export function SchedulerPanel() {
 
     setSaving(true)
     try {
-      await fetch('/api/scheduler', {
+      const res = await fetch('/api/scheduler', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, cronExpression: cronExpr }),
       })
+      if (!res.ok) {
+        toastError(`保存任务失败 (HTTP ${res.status})`)
+        return
+      }
       setEditingJob(null)
       await fetchJobs()
-    } catch {}
+      success('任务已保存')
+    } catch (e) {
+      toastError(`保存任务失败: ${e instanceof Error ? e.message : '网络错误'}`)
+    }
     setSaving(false)
   }
 
   async function toggleJob(id: string, enabled: boolean) {
     setSaving(true)
     try {
-      await fetch('/api/scheduler', {
+      const res = await fetch('/api/scheduler', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, enabled }),
       })
+      if (!res.ok) {
+        toastError(`${enabled ? '启用' : '暂停'}任务失败 (HTTP ${res.status})`)
+        return
+      }
       await fetchJobs()
-    } catch {}
+      success(enabled ? '任务已启用' : '任务已暂停')
+    } catch (e) {
+      toastError(`切换任务失败: ${e instanceof Error ? e.message : '网络错误'}`)
+    }
     setSaving(false)
   }
 
   async function triggerJob(action: string) {
-    setTriggerResult(null)
     try {
       const res = await fetch('/api/cron', {
         method: 'POST',
@@ -107,11 +127,16 @@ export function SchedulerPanel() {
         body: JSON.stringify({ action }),
       })
       const data = await res.json()
-      setTriggerResult({ action, message: data.message || (data.success ? '执行成功' : '执行失败') })
-      setTimeout(() => setTriggerResult(null), 5000)
-    } catch {
-      setTriggerResult({ action, message: '请求失败' })
-      setTimeout(() => setTriggerResult(null), 5000)
+      const message = data.message || (data.success ? '执行成功' : '执行失败')
+      // Reason: cron 接口的成功信号散落在 message 文本里（成功/Synced/Generated/sent），统一判定
+      const ok = data.success || /成功|Synced|Generated|sent/.test(message)
+      if (ok) {
+        success(`${action}: ${message}`)
+      } else {
+        toastError(`${action}: ${message}`)
+      }
+    } catch (e) {
+      toastError(`${action}: 请求失败 (${e instanceof Error ? e.message : '网络错误'})`)
     }
   }
 
@@ -134,15 +159,10 @@ export function SchedulerPanel() {
         </button>
       </header>
 
-      {/* Trigger Result Toast */}
-      {triggerResult && (
-        <div className={cn(
-          'rounded-md border px-4 py-3 text-sm',
-          triggerResult.message.includes('成功') || triggerResult.message.includes('Synced') || triggerResult.message.includes('Generated') || triggerResult.message.includes('sent')
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-            : 'border-red-200 bg-red-50 text-red-900',
-        )}>
-          {triggerResult.action}: {triggerResult.message}
+      {/* Load Error Banner */}
+      {loadError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          {loadError}
         </div>
       )}
 

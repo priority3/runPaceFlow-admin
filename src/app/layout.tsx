@@ -2,6 +2,8 @@ import '@/styles/globals.css'
 
 import type { Metadata } from 'next'
 
+import { ToastProvider } from '@/components/ui/toast'
+
 export const metadata: Metadata = {
   title: 'RunPaceFlow Admin',
   description: 'Configuration center for RunPaceFlow deployments',
@@ -24,7 +26,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   )
 }

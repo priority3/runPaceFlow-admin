@@ -58,9 +58,14 @@ export function DashboardView({ settings }: DashboardViewProps) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const [monitor, setMonitor] = useState<MonitorData | null>(null)
   const [loadingStats, setLoadingStats] = useState(true)
+  const [statsError, setStatsError] = useState<string | null>(null)
 
   const fetchStats = async () => {
-    setLoadingStats(true)
+    // Reason: 仅首次（无数据）显示加载态；30s 轮询时保留已渲染内容，避免概览页周期性闪烁
+    setStats(prev => {
+      if (prev === null) setLoadingStats(true)
+      return prev
+    })
     try {
       const [statsRes, monitorRes] = await Promise.all([
         fetch('/api/stats', { cache: 'no-store' }).then(r => r.json()),
@@ -69,7 +74,11 @@ export function DashboardView({ settings }: DashboardViewProps) {
       setStats(statsRes.stats)
       setSyncStatus(statsRes.syncStatus)
       setMonitor(monitorRes)
-    } catch {}
+      setStatsError(null)
+    } catch (e) {
+      // Reason: 之前空 catch 会让加载失败和"真的没数据"无法区分，这里显式上报
+      setStatsError(e instanceof Error ? e.message : '数据加载失败')
+    }
     setLoadingStats(false)
   }
 
@@ -132,6 +141,19 @@ export function DashboardView({ settings }: DashboardViewProps) {
       </aside>
 
       <main>
+        {statsError && (
+          <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 sm:mx-6 lg:mx-8">
+            <span>数据加载失败：{statsError}</span>
+            <button
+              type="button"
+              onClick={fetchStats}
+              disabled={loadingStats}
+              className="shrink-0 rounded-md border border-red-300 bg-background px-3 py-1 text-xs font-medium hover:bg-red-100 disabled:opacity-50 transition-colors"
+            >
+              {loadingStats ? '重试中...' : '重试'}
+            </button>
+          </div>
+        )}
         {tab === 'overview' && <OverviewPanel stats={stats} syncStatus={syncStatus} monitor={monitor} loading={loadingStats} />}
         {tab === 'activities' && <ActivitiesPanel stats={stats} loading={loadingStats} />}
         {tab === 'analytics' && <AnalyticsPanel />}

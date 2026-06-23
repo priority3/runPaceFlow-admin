@@ -40,7 +40,18 @@ export async function logoutAction() {
   redirect('/login')
 }
 
-export async function saveSettingsAction(formData: FormData) {
+export interface SaveSettingsState {
+  ok: boolean
+  message: string
+  savedCount: number
+  // Reason: 时间戳让前端能在内容不变时也感知"又保存了一次"，并展示保存时刻
+  savedAt: number
+}
+
+export async function saveSettingsAction(
+  _prevState: SaveSettingsState | null,
+  formData: FormData,
+): Promise<SaveSettingsState> {
   await requireAuth()
 
   const entries: Record<string, string> = {}
@@ -50,8 +61,24 @@ export async function saveSettingsAction(formData: FormData) {
     }
   }
 
-  await updateSettings(entries)
-  revalidatePath('/')
+  try {
+    await updateSettings(entries)
+    revalidatePath('/')
+    const savedCount = Object.keys(entries).length
+    return {
+      ok: true,
+      message: `已保存 ${savedCount} 项配置`,
+      savedCount,
+      savedAt: Date.now(),
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : '保存失败，请重试',
+      savedCount: 0,
+      savedAt: Date.now(),
+    }
+  }
 }
 
 export async function importEnvAction(_: unknown, formData: FormData) {

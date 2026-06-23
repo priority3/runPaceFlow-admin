@@ -51,11 +51,17 @@ export function AnalyticsPanel() {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [performanceTrend, setPerformanceTrend] = useState<PerformanceTrendData[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [days, setDays] = useState(14)
 
   const fetchAnalytics = async (rangeDays?: number) => {
     const d = rangeDays ?? days
-    setLoading(true)
+    // Reason: 仅首次（无数据）显示整页加载态；后续刷新只标记 refreshing，避免清空已渲染内容造成闪烁
+    setData(prev => {
+      if (prev === null) setLoading(true)
+      else setRefreshing(true)
+      return prev
+    })
     try {
       const [statsRes, trendRes] = await Promise.all([
         fetch(`/api/analytics/stats?days=${d}`, { cache: 'no-store' }),
@@ -71,6 +77,7 @@ export function AnalyticsPanel() {
       }
     } catch {}
     setLoading(false)
+    setRefreshing(false)
   }
 
   function handleDaysChange(newDays: number) {
@@ -168,9 +175,10 @@ export function AnalyticsPanel() {
           <button
             type="button"
             onClick={() => fetchAnalytics()}
-            className="bg-background hover:bg-accent flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors"
+            disabled={refreshing}
+            className="bg-background hover:bg-accent flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors disabled:opacity-60"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
             刷新
           </button>
         </div>

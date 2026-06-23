@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { FlaskConical, Plus, Trash2 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { useToast } from '@/components/ui/toast'
 
 import { CollapsibleSection } from './shared'
 
@@ -17,10 +18,13 @@ interface ABTest {
 }
 
 export function ABTestConfigPanel() {
+  const { success, error: toastError } = useToast()
   const [tests, setTests] = useState<ABTest[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [newTest, setNewTest] = useState({ name: '', variants: 'control,variant-a' })
+  // Reason: 删除是不可逆操作，需内联二次确认，记录待确认的测试 id
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
 
   useEffect(() => {
     fetchTests()
@@ -32,8 +36,12 @@ export function ABTestConfigPanel() {
       if (res.ok) {
         const data = await res.json()
         setTests(data.tests ?? [])
+      } else {
+        toastError(`加载 A/B 测试失败 (HTTP ${res.status})`)
       }
-    } catch {}
+    } catch (e) {
+      toastError(`加载 A/B 测试失败: ${e instanceof Error ? e.message : '网络错误'}`)
+    }
     setLoading(false)
   }
 
@@ -41,7 +49,10 @@ export function ABTestConfigPanel() {
     if (!newTest.name || !newTest.variants) return
 
     const variants = newTest.variants.split(',').map(v => v.trim()).filter(Boolean)
-    if (variants.length < 2) return
+    if (variants.length < 2) {
+      toastError('至少需要 2 个变体')
+      return
+    }
 
     try {
       const res = await fetch('/api/analytics/ab-test-config', {
@@ -53,30 +64,49 @@ export function ABTestConfigPanel() {
         setNewTest({ name: '', variants: 'control,variant-a' })
         setShowCreate(false)
         fetchTests()
+        success('测试已创建')
+      } else {
+        toastError(`创建失败 (HTTP ${res.status})`)
       }
-    } catch {}
+    } catch (e) {
+      toastError(`创建失败: ${e instanceof Error ? e.message : '网络错误'}`)
+    }
   }
 
   const handleToggle = async (id: string, enabled: boolean) => {
     try {
-      await fetch('/api/analytics/ab-test-config', {
+      const res = await fetch('/api/analytics/ab-test-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, enabled }),
       })
+      if (!res.ok) {
+        toastError(`操作失败 (HTTP ${res.status})`)
+        return
+      }
       fetchTests()
-    } catch {}
+    } catch (e) {
+      toastError(`操作失败: ${e instanceof Error ? e.message : '网络错误'}`)
+    }
   }
 
   const handleDelete = async (id: string) => {
+    setConfirmingDelete(null)
     try {
-      await fetch('/api/analytics/ab-test-config', {
+      const res = await fetch('/api/analytics/ab-test-config', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       })
+      if (!res.ok) {
+        toastError(`删除失败 (HTTP ${res.status})`)
+        return
+      }
       fetchTests()
-    } catch {}
+      success('测试已删除')
+    } catch (e) {
+      toastError(`删除失败: ${e instanceof Error ? e.message : '网络错误'}`)
+    }
   }
 
   if (loading) return null
@@ -153,13 +183,34 @@ export function ABTestConfigPanel() {
                       test.enabled ? 'translate-x-4.5' : 'translate-x-0.5',
                     )} />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(test.id)}
-                    className="text-muted-foreground hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {confirmingDelete === test.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-muted-foreground">确认删除?</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(test.id)}
+                        className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-600 transition-colors"
+                      >
+                        删除
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingDelete(null)}
+                        className="rounded border bg-background px-1.5 py-0.5 text-[10px] hover:bg-accent transition-colors"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDelete(test.id)}
+                      className="text-muted-foreground hover:text-red-500 transition-colors"
+                      aria-label={`删除测试 ${test.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="flex flex-wrap gap-1">
