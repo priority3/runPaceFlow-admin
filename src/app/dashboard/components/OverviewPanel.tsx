@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Activity, Footprints, Shield, Target, Timer, TrendingUp } from 'lucide-react'
 
+import type { SyncStatus } from '@/lib/activity/dashboard-stats'
 import type { MonitorData } from '../DashboardView'
 import { cn } from '@/lib/utils'
 
@@ -18,11 +19,6 @@ interface ActivityStats {
     running: { total: { activities: number; distance: number } }
     cycling: { total: { activities: number; distance: number } }
   }
-}
-
-interface SyncStatus {
-  nike: { hasToken: boolean; hasRefreshToken: boolean; latestSync: { startedAt: string; completedAt: string; activitiesSynced: number } | null }
-  strava: { hasCredentials: boolean; latestSync: { startedAt: string; completedAt: string; activitiesSynced: number } | null }
 }
 
 function HealthScore({ monitor, syncStatus }: { monitor: MonitorData | null; syncStatus: SyncStatus | null }) {

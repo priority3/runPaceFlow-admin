@@ -71,7 +71,7 @@ function createAdapter(
       if (!token) {
         throw new Error('No token found for nike')
       }
-      return refreshToken ? new NikeAdapter(refreshToken, refreshToken) : new NikeAdapter(token)
+      return new NikeAdapter(token, refreshToken || undefined)
     }
     case 'strava': {
       const clientId = settings.STRAVA_CLIENT_ID
@@ -282,7 +282,7 @@ export async function testConnection(source: SyncSource): Promise<boolean> {
     const profile = await getUserProfile()
     const settings = await getRuntimeSettings({ force: true })
     const adapter = createAdapter(source, profile, settings)
-    return await adapter.healthCheck()
+    return await adapter.authenticate({})
   } catch (error) {
     console.error(`Connection test failed for ${source}:`, error)
     return false

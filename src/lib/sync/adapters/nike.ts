@@ -27,9 +27,11 @@ export class NikeAdapter implements SyncAdapter {
    */
   async authenticate(credentials: Record<string, any>): Promise<boolean> {
     try {
-      // Validate credentials
-      if (!credentials.accessToken) {
-        return false
+      if (credentials.accessToken) {
+        this.accessToken = credentials.accessToken
+      }
+      if (credentials.refreshToken) {
+        this.refreshToken = credentials.refreshToken
       }
       await this.healthCheck()
       return true

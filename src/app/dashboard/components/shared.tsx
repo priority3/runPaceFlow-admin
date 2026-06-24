@@ -73,7 +73,7 @@ export function ServiceCard({ name, status, responseTime, type }: {
 }
 
 export function SyncCard({ source, configured, lastSync }: {
-  source: string; configured: boolean; lastSync?: { startedAt: string; activitiesSynced: number } | null
+  source: string; configured: boolean; lastSync?: { startedAt: string; completedAt: string | null; activitiesCount: number } | null
 }) {
   return (
     <div className="bg-card rounded-lg border p-4 shadow-sm">
@@ -86,7 +86,7 @@ export function SyncCard({ source, configured, lastSync }: {
       </div>
       <dl className="space-y-1 text-xs">
         <div className="flex justify-between"><dt className="text-muted-foreground">最后同步</dt><dd>{lastSync?.startedAt ? formatDateTime(lastSync.startedAt) : '无'}</dd></div>
-        {lastSync && <div className="flex justify-between"><dt className="text-muted-foreground">同步条数</dt><dd className="tabular-nums">{lastSync.activitiesSynced}</dd></div>}
+        {lastSync && <div className="flex justify-between"><dt className="text-muted-foreground">同步条数</dt><dd className="tabular-nums">{lastSync.activitiesCount}</dd></div>}
       </dl>
     </div>
   )

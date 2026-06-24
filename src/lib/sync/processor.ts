@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { getDb } from '@/lib/db/activities-client'
 import { activities, splits } from '@/lib/db/activities-schema'
@@ -34,7 +34,7 @@ export async function syncActivity(rawActivity: RawActivity): Promise<string> {
     const existing = await db
       .select()
       .from(activities)
-      .where(eq(activities.sourceId, rawActivity.id))
+      .where(and(eq(activities.source, rawActivity.source), eq(activities.sourceId, rawActivity.id)))
       .limit(1)
 
     if (existing.length > 0) {
@@ -102,7 +102,7 @@ export async function syncActivity(rawActivity: RawActivity): Promise<string> {
 
     await db.insert(activities).values({
       id: activityId,
-      title: rawActivity.title,
+      title: raceName ?? rawActivity.title,
       type: rawActivity.type,
       source: rawActivity.source,
       sourceId: rawActivity.id,

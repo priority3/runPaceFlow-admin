@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 
 import { logoutAction } from '@/app/actions'
+import type { ActivityStats, SyncStatus } from '@/lib/activity/dashboard-stats'
 import type { StoredSetting } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
@@ -24,22 +25,6 @@ import { SchedulerPanel } from './components/SchedulerPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 
 type Tab = 'overview' | 'activities' | 'analytics' | 'scheduler' | 'monitor' | 'settings'
-
-interface ActivityStats {
-  total: { activities: number; distance: number; duration: number; elevation: number; averagePace: number }
-  thisWeek: { activities: number; distance: number; duration: number }
-  lastWeek: { activities: number; distance: number; duration: number }
-  thisMonth: { activities: number; distance: number; duration: number }
-  byType: {
-    running: { total: { activities: number; distance: number } }
-    cycling: { total: { activities: number; distance: number } }
-  }
-}
-
-interface SyncStatus {
-  nike: { hasToken: boolean; hasRefreshToken: boolean; latestSync: { startedAt: string; completedAt: string; activitiesSynced: number } | null }
-  strava: { hasCredentials: boolean; latestSync: { startedAt: string; completedAt: string; activitiesSynced: number } | null }
-}
 
 export interface MonitorData {
   services: { name: string; status: string; responseTimeMs: number | null }[]

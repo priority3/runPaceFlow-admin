@@ -1,59 +1,12 @@
-import { desc, eq } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/api-helpers'
-import { getActivitiesDb } from '@/lib/db/activities-client'
-import { syncLogs } from '@/lib/db/activities-schema'
-import { getRuntimeSettings } from '@/lib/runtime-config'
+import { getDashboardStats } from '@/lib/activity/dashboard-stats'
 
 export const dynamic = 'force-dynamic'
 
-const FRONTEND_URL = process.env.RUNPACEFLOW_FRONTEND_URL || 'http://127.0.0.1:3000'
-
-async function trpcQuery<T>(procedure: string): Promise<T> {
-  const url = `${FRONTEND_URL}/api/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify({}))}`
-  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10000) })
-  if (!res.ok) throw new Error(`tRPC ${procedure} failed: ${res.status}`)
-  const json = await res.json()
-  return json.result?.data?.json as T
-}
-
-// Reason: syncStatus 改为查 admin 本地(同步已迁到 admin),不再依赖主站 sync 路由。
-// 活动统计 stats 仍读主站 getStats —— 主站读的是同一个共享库,数据一致,避免搬运统计辅助代码。
-async function getSyncStatus() {
-  const db = await getActivitiesDb()
-  const settings = await getRuntimeSettings()
-  const latest = async (source: string) => {
-    const rows = await db
-      .select()
-      .from(syncLogs)
-      .where(eq(syncLogs.source, source))
-      .orderBy(desc(syncLogs.startedAt))
-      .limit(1)
-    return rows[0] || null
-  }
-  return {
-    nike: {
-      hasToken: !!(settings.NIKE_REFRESH_TOKEN || settings.NIKE_ACCESS_TOKEN),
-      hasRefreshToken: !!settings.NIKE_REFRESH_TOKEN,
-      latestSync: await latest('nike'),
-    },
-    strava: {
-      hasCredentials: !!(
-        settings.STRAVA_CLIENT_ID &&
-        settings.STRAVA_CLIENT_SECRET &&
-        settings.STRAVA_REFRESH_TOKEN
-      ),
-      latestSync: await latest('strava'),
-    },
-  }
-}
-
 export const GET = withAuth(async () => {
-  const [stats, syncStatus] = await Promise.all([
-    trpcQuery('activities.getStats').catch(() => null),
-    getSyncStatus().catch(() => null),
-  ])
+  const { stats, syncStatus } = await getDashboardStats()
 
   return NextResponse.json(
     { stats, syncStatus },
