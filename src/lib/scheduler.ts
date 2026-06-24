@@ -22,19 +22,6 @@ async function syncActivities(): Promise<number> {
   let totalSynced = 0
 
   // Reason: admin 已接管同步,直接进程内调用 performSync(增量),不再 HTTP fetch 主站。
-  // Sync Nike
-  try {
-    const result = await performSync({ source: 'nike', limit: 50 })
-    if (result.success && result.activitiesCount > 0) {
-      totalSynced += result.activitiesCount
-      console.log(`[Scheduler] Nike sync: ${result.activitiesCount} activities`)
-    } else if (!result.success) {
-      console.warn('[Scheduler] Nike sync failed:', result.errorMessage)
-    }
-  } catch (err) {
-    console.warn('[Scheduler] Nike sync failed:', (err as Error).message)
-  }
-
   // Sync Strava
   try {
     const result = await performSync({ source: 'strava', limit: 50 })

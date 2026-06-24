@@ -143,11 +143,6 @@ export function OverviewPanel({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <SyncCard
-          source="Nike Run Club"
-          configured={syncStatus?.nike.hasToken ?? false}
-          lastSync={syncStatus?.nike.latestSync}
-        />
-        <SyncCard
           source="Strava"
           configured={syncStatus?.strava.hasCredentials ?? false}
           lastSync={syncStatus?.strava.latestSync}

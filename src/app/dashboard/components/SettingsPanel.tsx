@@ -156,15 +156,6 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
               },
             },
             {
-              name: 'Nike 用户',
-              desc: 'Nike Run Club 同步配置',
-              icon: '🏃',
-              values: {
-                DATABASE_URL: 'libsql://your-turso-db.turso.io',
-                NEXT_PUBLIC_MAP_STYLE: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-              },
-            },
-            {
               name: 'Strava 用户',
               desc: 'Strava 同步配置',
               icon: '🚴',

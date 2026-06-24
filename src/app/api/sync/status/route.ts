@@ -3,7 +3,7 @@
  *
  * GET /api/sync/status
  *
- * 返回 Nike/Strava 最近一次同步日志 + 凭据配置情况,供 admin UI 展示。
+ * 返回 Strava 最近一次同步日志 + 凭据配置情况,供 admin UI 展示。
  */
 
 import { desc, eq } from 'drizzle-orm'
@@ -31,11 +31,6 @@ export const GET = withAuth(async () => {
   }
 
   return NextResponse.json({
-    nike: {
-      hasToken: !!(settings.NIKE_REFRESH_TOKEN || settings.NIKE_ACCESS_TOKEN),
-      hasRefreshToken: !!settings.NIKE_REFRESH_TOKEN,
-      latestSync: await latest('nike'),
-    },
     strava: {
       hasCredentials: !!(
         settings.STRAVA_CLIENT_ID &&

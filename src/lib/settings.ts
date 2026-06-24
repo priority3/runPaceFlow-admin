@@ -26,7 +26,7 @@ export const CATEGORY_META: Record<
   },
   sync: {
     label: '同步源',
-    description: 'Strava、Nike 等运动平台的同步凭据。',
+    description: 'Strava 等运动平台的同步凭据。',
     accent: 'green',
   },
   ai: {
@@ -106,22 +106,6 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     key: 'STRAVA_REFRESH_TOKEN',
     label: 'Strava Refresh Token',
     description: '用于刷新 Strava access token 并同步活动。',
-    category: 'sync',
-    kind: 'password',
-    sensitive: true,
-  },
-  {
-    key: 'NIKE_ACCESS_TOKEN',
-    label: 'Nike Access Token',
-    description: 'Nike Run Club 手动 access token。',
-    category: 'sync',
-    kind: 'password',
-    sensitive: true,
-  },
-  {
-    key: 'NIKE_REFRESH_TOKEN',
-    label: 'Nike Refresh Token',
-    description: 'Nike Run Club refresh token，优先用于自动刷新。',
     category: 'sync',
     kind: 'password',
     sensitive: true,

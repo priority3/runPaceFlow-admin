@@ -24,7 +24,6 @@ export interface SyncLogSummary {
 }
 
 export interface SyncStatus {
-  nike: { hasToken: boolean; hasRefreshToken: boolean; latestSync: SyncLogSummary | null }
   strava: { hasCredentials: boolean; latestSync: SyncLogSummary | null }
 }
 
@@ -197,11 +196,6 @@ export async function getSyncStatus(): Promise<SyncStatus> {
   }
 
   return {
-    nike: {
-      hasToken: !!(settings.NIKE_REFRESH_TOKEN || settings.NIKE_ACCESS_TOKEN),
-      hasRefreshToken: !!settings.NIKE_REFRESH_TOKEN,
-      latestSync: await latest('nike'),
-    },
     strava: {
       hasCredentials: !!(
         settings.STRAVA_CLIENT_ID &&

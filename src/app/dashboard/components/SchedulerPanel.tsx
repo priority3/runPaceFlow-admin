@@ -171,7 +171,7 @@ export function SchedulerPanel() {
         <h3 className="mb-3 text-sm font-semibold">手动触发</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { action: 'sync', label: '同步数据', icon: Cloud, desc: '立即从 Nike/Strava 同步运动数据' },
+            { action: 'sync', label: '同步数据', icon: Cloud, desc: '立即从 Strava 同步运动数据' },
             { action: 'insights', label: 'AI 分析', icon: Brain, desc: '为未分析的活动生成 AI 洞察' },
             { action: 'notify', label: '发送报告', icon: Bell, desc: '立即推送今日训练报告到微信' },
             { action: 'analytics-digest', label: '访问日报', icon: BarChart3, desc: '推送今日访问数据摘要到微信' },
