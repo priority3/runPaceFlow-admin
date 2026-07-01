@@ -65,7 +65,7 @@ export function SchedulerPanel() {
   }
 
   useEffect(() => {
-    fetchJobs()
+    void Promise.resolve().then(fetchJobs)
   }, [])
 
   function startEdit(job: SchedulerJob) {
@@ -173,6 +173,7 @@ export function SchedulerPanel() {
           {[
             { action: 'sync', label: '同步数据', icon: Cloud, desc: '立即从 Strava 同步运动数据' },
             { action: 'insights', label: 'AI 分析', icon: Brain, desc: '为未分析的活动生成 AI 洞察' },
+            { action: 'notification-dispatch', label: 'PR 通知', icon: Bell, desc: '发送待推送的 PR 复盘通知' },
             { action: 'notify', label: '发送报告', icon: Bell, desc: '立即推送今日训练报告到微信' },
             { action: 'analytics-digest', label: '访问日报', icon: BarChart3, desc: '推送今日访问数据摘要到微信' },
           ].map(item => (
