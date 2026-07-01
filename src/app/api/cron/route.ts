@@ -2,7 +2,7 @@
  * Cron Manual Trigger API
  *
  * POST /api/cron
- * Body: { action: 'sync' | 'insights' | 'notify' | 'analytics-digest' | 'retention-cleanup' }
+ * Body: { action: 'sync' | 'insights' | 'notify' | 'notification-dispatch' | 'analytics-digest' | 'retention-cleanup' }
  *
  * Manually triggers scheduled jobs for testing.
  */
@@ -10,13 +10,14 @@
 import { NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/api-helpers'
-import { manualSync, manualInsights, manualNotify } from '@/lib/scheduler'
+import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
+import { manualSync, manualInsights, manualNotify, manualWeeklyReview, manualStravaEventDrain } from '@/lib/scheduler'
 import { generateAnalyticsDigest, sendPushPlus } from '@/lib/notify'
 import { cleanupOldData } from '@/lib/retention'
 
 export const dynamic = 'force-dynamic'
 
-const VALID_ACTIONS = ['sync', 'insights', 'notify', 'analytics-digest', 'retention-cleanup'] as const
+const VALID_ACTIONS = ['sync', 'insights', 'notify', 'notification-dispatch', 'weekly-review', 'strava-event-drain', 'analytics-digest', 'retention-cleanup'] as const
 
 export const POST = withAuth(async (request) => {
   let body: { action?: string }
@@ -45,6 +46,20 @@ export const POST = withAuth(async (request) => {
       break
     case 'notify':
       result = await manualNotify()
+      break
+    case 'notification-dispatch': {
+      const dispatched = await dispatchPendingNotifications(10)
+      result = {
+        success: dispatched.failed === 0,
+        message: `PR notifications: ${dispatched.sent} sent, ${dispatched.failed} failed, ${dispatched.skipped} skipped`,
+      }
+      break
+    }
+    case 'weekly-review':
+      result = await manualWeeklyReview()
+      break
+    case 'strava-event-drain':
+      result = await manualStravaEventDrain()
       break
     case 'analytics-digest': {
       const digest = await generateAnalyticsDigest()

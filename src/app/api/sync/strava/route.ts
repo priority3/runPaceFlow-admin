@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/api-helpers'
+import { generatePrReviewsForActivities } from '@/lib/pr/review'
 import { performSync } from '@/lib/sync/service'
 
 export const dynamic = 'force-dynamic'
@@ -26,11 +27,17 @@ export const POST = withAuth(async (request) => {
   const fullSync = body.fullSync === true
 
   const result = await performSync({ source: 'strava', limit, fullSync })
+  const reviews =
+    result.success && result.activityIds.length > 0
+      ? await generatePrReviewsForActivities(result.activityIds)
+      : { generated: 0, skipped: 0, failed: 0 }
 
   return NextResponse.json(
     {
       success: result.success,
       count: result.activitiesCount,
+      activityIds: result.activityIds,
+      reviews,
       errorMessage: result.errorMessage,
       logId: result.logId,
     },

@@ -200,14 +200,26 @@ const yearRacesCache = new Map<number, Race[]>()
 
 // Shared browser instance for the sync session
 let sharedBrowser: Browser | null = null
+let browserUnavailableWarned = false
 
 /**
  * Initialize the race matcher (should be called at sync start)
  */
 export async function initRaceMatcher(): Promise<void> {
-  if (!sharedBrowser) {
+  if (sharedBrowser) {
+    return
+  }
+
+  try {
     sharedBrowser = await chromium.launch({ headless: true })
+    browserUnavailableWarned = false
     console.info('[RaceMatcher] Browser initialized')
+  } catch (error) {
+    if (!browserUnavailableWarned) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn('[RaceMatcher] Browser unavailable, race matching will be skipped:', message)
+      browserUnavailableWarned = true
+    }
   }
 }
 
@@ -484,6 +496,10 @@ export async function matchRaceForActivity(
 ): Promise<string | null> {
   // Only match for half marathon or longer (≥20500m)
   if (distanceMeters < 20500) {
+    return null
+  }
+
+  if (!sharedBrowser) {
     return null
   }
 

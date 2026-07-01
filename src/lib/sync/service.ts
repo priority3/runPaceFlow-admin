@@ -42,6 +42,8 @@ export interface SyncResult {
   success: boolean
   /** 同步的活动数量 */
   activitiesCount: number
+  /** 本轮同步涉及的活动 ID */
+  activityIds: string[]
   /** 错误信息 */
   errorMessage?: string
   /** 同步日志 ID */
@@ -193,6 +195,7 @@ export async function performSync(options: SyncOptions): Promise<SyncResult> {
     return {
       success: true,
       activitiesCount: activityIds.length,
+      activityIds,
       logId,
     }
   } catch (error) {
@@ -215,6 +218,7 @@ export async function performSync(options: SyncOptions): Promise<SyncResult> {
     return {
       success: false,
       activitiesCount: 0,
+      activityIds: [],
       errorMessage,
       logId,
     }

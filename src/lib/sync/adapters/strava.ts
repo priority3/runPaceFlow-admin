@@ -359,19 +359,22 @@ export class StravaAdapter implements SyncAdapter {
    * Health check - verify API access
    */
   async healthCheck(): Promise<boolean> {
-    try {
-      await this.ensureValidToken()
+    await this.ensureValidToken()
 
-      const response = await fetch(`${STRAVA_API_BASE}/athlete`, {
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-        },
-      })
+    const response = await fetch(`${STRAVA_API_BASE}/athlete`, {
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`,
+      },
+    })
 
-      return response.ok
-    } catch {
-      return false
+    if (!response.ok) {
+      const body = await response.text()
+      throw new Error(
+        `Strava API health check failed: ${response.status} ${response.statusText} ${body}`,
+      )
     }
+
+    return true
   }
 
   /**

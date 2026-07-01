@@ -8,9 +8,13 @@
 import cron from 'node-cron'
 
 import { generateInsightsForUncached } from './ai'
+import { dispatchPendingNotifications } from './notifications/dispatcher'
 import { generateDailyReport, sendPushPlus } from './notify'
+import { generatePrReviewsForActivities } from './pr/review'
+import { generateWeeklyReview } from './pr/weekly'
 import { cleanupOldData } from './retention'
 import { ensureDefaultJobs, listJobs, recordJobRun } from './scheduler-config'
+import { drainStravaEvents } from './strava/events'
 import { performSync } from './sync/service'
 
 let schedulerStarted = false
@@ -27,7 +31,11 @@ async function syncActivities(): Promise<number> {
     const result = await performSync({ source: 'strava', limit: 50 })
     if (result.success && result.activitiesCount > 0) {
       totalSynced += result.activitiesCount
+      const reviews = await generatePrReviewsForActivities(result.activityIds)
       console.log(`[Scheduler] Strava sync: ${result.activitiesCount} activities`)
+      console.log(
+        `[Scheduler] PR reviews: ${reviews.generated} generated, ${reviews.skipped} skipped, ${reviews.failed} failed`,
+      )
     } else if (!result.success) {
       console.warn('[Scheduler] Strava sync failed:', result.errorMessage)
     }
@@ -84,6 +92,23 @@ async function jobGenerateInsights() {
   }
 }
 
+async function jobStravaEventDrain() {
+  console.log('[Scheduler] Running Strava webhook drain job...')
+  const startTime = Date.now()
+
+  try {
+    const result = await drainStravaEvents(5)
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun(
+      'strava_event_drain',
+      `success: ${result.processed} processed, ${result.synced} synced, ${result.failed} failed in ${elapsed}s`,
+    )
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun('strava_event_drain', `error: ${(err as Error).message} (${elapsed}s)`)
+  }
+}
+
 // ─── Job: Daily Report ──────────────────────────────────────────────────────
 
 async function jobDailyReport() {
@@ -111,6 +136,40 @@ async function jobDailyReport() {
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     await recordJobRun('daily_report', `error: ${(err as Error).message} (${elapsed}s)`)
+  }
+}
+
+async function jobNotificationDispatch() {
+  console.log('[Scheduler] Running PR notification dispatch job...')
+  const startTime = Date.now()
+
+  try {
+    const result = await dispatchPendingNotifications(10)
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun(
+      'notification_dispatch',
+      `success: ${result.sent} sent, ${result.failed} failed, ${result.skipped} skipped in ${elapsed}s`,
+    )
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun('notification_dispatch', `error: ${(err as Error).message} (${elapsed}s)`)
+  }
+}
+
+async function jobWeeklyReview() {
+  console.log('[Scheduler] Running PR weekly review job...')
+  const startTime = Date.now()
+
+  try {
+    const result = await generateWeeklyReview({ enqueueNotification: true })
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun(
+      'weekly_review',
+      `${result.generated ? 'generated' : 'skipped'}: ${result.subjectId} in ${elapsed}s`,
+    )
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun('weekly_review', `error: ${(err as Error).message} (${elapsed}s)`)
   }
 }
 
@@ -169,11 +228,40 @@ export async function manualNotify(): Promise<{ success: boolean; message: strin
   }
 }
 
+export async function manualWeeklyReview(): Promise<{ success: boolean; message: string }> {
+  try {
+    const result = await generateWeeklyReview({ force: true, enqueueNotification: true })
+    await recordJobRun('weekly_review', `manual: ${result.generated ? 'generated' : 'skipped'} ${result.subjectId}`)
+    return {
+      success: true,
+      message: `Weekly review ${result.generated ? 'generated' : 'skipped'} for ${result.subjectId}`,
+    }
+  } catch (err) {
+    return { success: false, message: (err as Error).message }
+  }
+}
+
+export async function manualStravaEventDrain(): Promise<{ success: boolean; message: string }> {
+  try {
+    const result = await drainStravaEvents(10)
+    await recordJobRun('strava_event_drain', `manual: ${result.processed} processed, ${result.failed} failed`)
+    return {
+      success: result.failed === 0,
+      message: `Strava events: ${result.processed} processed, ${result.synced} synced, ${result.skipped} skipped, ${result.failed} failed`,
+    }
+  } catch (err) {
+    return { success: false, message: (err as Error).message }
+  }
+}
+
 // ─── Scheduler Init ─────────────────────────────────────────────────────────
 
 const JOB_HANDLERS: Record<string, () => Promise<void>> = {
   sync: jobSyncAndNotify,
+  strava_event_drain: jobStravaEventDrain,
   insights: jobGenerateInsights,
+  notification_dispatch: jobNotificationDispatch,
+  weekly_review: jobWeeklyReview,
   daily_report: jobDailyReport,
   retention_cleanup: jobRetentionCleanup,
 }
