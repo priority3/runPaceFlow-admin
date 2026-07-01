@@ -204,7 +204,7 @@ ${splitsStr}
 
 // ─── AI Providers ───────────────────────────────────────────────────────────
 
-const CLAUDE_MODEL = 'claude-sonnet-4-20250514'
+const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-4-20250514'
 const OPENAI_DEFAULT_MODEL = 'gpt-4o'
 
 async function generateWithClaude(input: ActivityInsightInput): Promise<AIGenerationResult> {
@@ -216,8 +216,10 @@ async function generateWithClaude(input: ActivityInsightInput): Promise<AIGenera
     ...(process.env.ANTHROPIC_BASE_URL && { baseURL: process.env.ANTHROPIC_BASE_URL }),
   })
 
+  const model = process.env.ANTHROPIC_MODEL || CLAUDE_DEFAULT_MODEL
+
   const response = await client.messages.create({
-    model: CLAUDE_MODEL,
+    model,
     max_tokens: 1024,
     system: buildSystemPrompt(),
     messages: [{ role: 'user', content: buildUserPrompt(input) }],
@@ -228,7 +230,7 @@ async function generateWithClaude(input: ActivityInsightInput): Promise<AIGenera
     throw new Error('No text content in Claude response')
   }
 
-  return { content: textContent.text, model: CLAUDE_MODEL, provider: 'claude' }
+  return { content: textContent.text, model, provider: 'claude' }
 }
 
 async function generateWithOpenAI(input: ActivityInsightInput): Promise<AIGenerationResult> {
