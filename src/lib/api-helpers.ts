@@ -6,23 +6,83 @@
 
 import { NextResponse } from 'next/server'
 
-import { requireAuth } from './auth'
+import { isAuthenticated, requireAuth } from './auth'
+import { safeEqual } from './crypto'
+import { getRuntimeSetting } from './runtime-config'
 
-type RouteHandler = (request: Request) => Promise<Response | NextResponse>
+type RouteHandler<TContext = unknown> = (
+  request: Request,
+  context?: TContext,
+) => Promise<Response | NextResponse>
+
+/**
+ * Extracts a Bearer token from an Authorization header value.
+ * Returns null when absent or malformed.
+ */
+function extractBearerToken(headerValue: string | null): string | null {
+  const prefix = 'Bearer '
+  if (!headerValue?.startsWith(prefix)) return null
+  const token = headerValue.slice(prefix.length).trim()
+  return token.length > 0 ? token : null
+}
 
 /**
  * Wraps a route handler with authentication and error handling.
  * Returns 401 for auth failures, 500 for unexpected errors.
  */
-export function withAuth(handler: RouteHandler): RouteHandler {
-  return async (request: Request) => {
+export function withAuth<TContext = unknown>(handler: RouteHandler<TContext>): RouteHandler<TContext> {
+  return async (request: Request, context?: TContext) => {
     try {
       await requireAuth()
-      return await handler(request)
+      return await handler(request, context)
     } catch (error) {
       if (error instanceof Error && error.message === 'Unauthorized') {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Internal error' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
+ * Wraps a route handler for external data-reporting endpoints (e.g. HealthKit / iOS
+ * Shortcuts sleep upload). Authorizes the request when EITHER a valid admin session
+ * cookie is present OR the Authorization Bearer token matches HEALTH_IMPORT_TOKEN.
+ *
+ * Reason: reporting devices cannot present the admin session cookie, so they
+ * authenticate with a shared token configured in the admin settings; the dashboard
+ * keeps working via its session cookie.
+ */
+export function withHealthImportAuth<TContext = unknown>(
+  handler: RouteHandler<TContext>,
+): RouteHandler<TContext> {
+  return async (request: Request, context?: TContext) => {
+    try {
+      // Reason: resolve the token defensively — getRuntimeSetting already falls back
+      // to process.env when the admin config store is down, but we never let a config
+      // lookup failure turn into a 500 on the ingest path. An empty token simply means
+      // token auth is unavailable, and we fall back to admin-session auth.
+      let expectedToken = ''
+      try {
+        expectedToken = await getRuntimeSetting('HEALTH_IMPORT_TOKEN')
+      } catch (error) {
+        console.warn('[health-import] 读取上报 Token 失败:', (error as Error).message)
+      }
+
+      const providedToken = extractBearerToken(request.headers.get('authorization'))
+      const tokenOk =
+        expectedToken.length > 0 && providedToken != null && safeEqual(providedToken, expectedToken)
+      const sessionOk = tokenOk ? false : await isAuthenticated()
+
+      if (!tokenOk && !sessionOk) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+
+      return await handler(request, context)
+    } catch (error) {
       return NextResponse.json(
         { error: error instanceof Error ? error.message : 'Internal error' },
         { status: 500 },
