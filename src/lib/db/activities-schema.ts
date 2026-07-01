@@ -124,6 +124,398 @@ export const activityInsights = sqliteTable('activity_insights', {
     .default(sql`(unixepoch())`),
 })
 
+/**
+ * PR 复盘表 - 保存面向用户的跑后/周/月/目标复盘输出
+ */
+export const activityReviews = sqliteTable('activity_reviews', {
+  id: text('id').primaryKey(),
+  runId: text('run_id'),
+  subjectType: text('subject_type').notNull(),
+  subjectId: text('subject_id').notNull(),
+  activityId: text('activity_id').references(() => activities.id, { onDelete: 'set null' }),
+  kind: text('kind').notNull(),
+  status: text('status').notNull().default('generated'),
+  featuresJson: text('features_json').notNull(),
+  contextJson: text('context_json'),
+  content: text('content').notNull(),
+  model: text('model').notNull(),
+  provider: text('provider'),
+  inputHash: text('input_hash').notNull(),
+  builderVersion: text('builder_version').notNull(),
+  promptVersion: text('prompt_version').notNull(),
+  supersededBy: text('superseded_by'),
+  isCurrent: integer('is_current', { mode: 'boolean' }).notNull().default(true),
+  errorMessage: text('error_message'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+/**
+ * PR 图表批注表 - 保存复盘中可落在公里/时间点上的观察
+ */
+export const reviewAnnotations = sqliteTable('review_annotations', {
+  id: text('id').primaryKey(),
+  reviewId: text('review_id')
+    .notNull()
+    .references(() => activityReviews.id, { onDelete: 'cascade' }),
+  activityId: text('activity_id')
+    .notNull()
+    .references(() => activities.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  atSeconds: integer('at_seconds'),
+  kilometer: real('kilometer'),
+  label: text('label').notNull(),
+  content: text('content').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+/**
+ * Agent 运行记录 - 第一阶段用于记录复盘生成的输入、状态和错误
+ */
+export const agentRuns = sqliteTable('agent_runs', {
+  id: text('id').primaryKey(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  trigger: text('trigger').notNull(),
+  subjectType: text('subject_type'),
+  subjectId: text('subject_id'),
+  status: text('status').notNull().default('pending'),
+  inputHash: text('input_hash'),
+  builderVersion: text('builder_version').notNull(),
+  model: text('model'),
+  attempts: integer('attempts').notNull().default(0),
+  lastStep: text('last_step'),
+  lockedBy: text('locked_by'),
+  lockedUntil: integer('locked_until', { mode: 'timestamp' }),
+  nextRetryAt: integer('next_retry_at', { mode: 'timestamp' }),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  startedAt: integer('started_at', { mode: 'timestamp' }),
+  completedAt: integer('completed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const agentStateSnapshots = sqliteTable('agent_state_snapshots', {
+  id: text('id').primaryKey(),
+  runId: text('run_id')
+    .notNull()
+    .references(() => agentRuns.id, { onDelete: 'cascade' }),
+  step: text('step').notNull(),
+  stateJson: text('state_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+/**
+ * 通知投递表 - 第一阶段先入队，dispatcher 后续接入微信测试号
+ */
+export const notificationDeliveries = sqliteTable('notification_deliveries', {
+  id: text('id').primaryKey(),
+  reviewId: text('review_id').references(() => activityReviews.id, { onDelete: 'set null' }),
+  channel: text('channel').notNull(),
+  recipient: text('recipient').notNull(),
+  title: text('title').notNull(),
+  content: text('content').notNull(),
+  payloadJson: text('payload_json'),
+  status: text('status').notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  providerMessageId: text('provider_message_id'),
+  errorCode: text('error_code'),
+  lastError: text('last_error'),
+  nextRetryAt: integer('next_retry_at', { mode: 'timestamp' }),
+  lockedBy: text('locked_by'),
+  lockedUntil: integer('locked_until', { mode: 'timestamp' }),
+  sentAt: integer('sent_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+/**
+ * 主观反馈表 - 用户补充 RPE、疼痛、心情和备注后进入 PR 上下文
+ */
+export const subjectiveFeedback = sqliteTable('subjective_feedback', {
+  id: text('id').primaryKey(),
+  activityId: text('activity_id').references(() => activities.id, { onDelete: 'set null' }),
+  mood: text('mood'),
+  rpe: integer('rpe'),
+  painJson: text('pain_json'),
+  note: text('note'),
+  source: text('source').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const memoryItems = sqliteTable('memory_items', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  status: text('status').notNull().default('candidate'),
+  content: text('content').notNull(),
+  evidenceJson: text('evidence_json').notNull(),
+  confidence: real('confidence').notNull().default(0),
+  source: text('source').notNull(),
+  firstSeenAt: integer('first_seen_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }),
+  version: integer('version').notNull().default(1),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const memoryEvents = sqliteTable('memory_events', {
+  id: text('id').primaryKey(),
+  memoryId: text('memory_id').references(() => memoryItems.id, { onDelete: 'set null' }),
+  runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+  idempotencyKey: text('idempotency_key').notNull(),
+  action: text('action').notNull(),
+  status: text('status').notNull().default('applied'),
+  patchJson: text('patch_json').notNull(),
+  actor: text('actor').notNull(),
+  expectedVersion: integer('expected_version'),
+  resultingVersion: integer('resulting_version'),
+  reason: text('reason'),
+  conflictReason: text('conflict_reason'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const friendProfile = sqliteTable('friend_profile', {
+  id: text('id').primaryKey(),
+  displayName: text('display_name'),
+  companionStyleJson: text('companion_style_json'),
+  activeGoalsJson: text('active_goals_json'),
+  trainingPreferencesJson: text('training_preferences_json'),
+  injuryWatchlistJson: text('injury_watchlist_json'),
+  recentStateJson: text('recent_state_json'),
+  doNotAssumeJson: text('do_not_assume_json'),
+  projectionVersion: integer('projection_version').notNull().default(1),
+  sourceDiaryId: text('source_diary_id'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const friendDiaryEntries = sqliteTable('friend_diary_entries', {
+  id: text('id').primaryKey(),
+  periodStart: integer('period_start', { mode: 'timestamp' }).notNull(),
+  periodEnd: integer('period_end', { mode: 'timestamp' }).notNull(),
+  content: text('content').notNull(),
+  observationsJson: text('observations_json'),
+  memoryPatchesJson: text('memory_patches_json'),
+  model: text('model').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const raceGoals = sqliteTable('race_goals', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  raceDate: integer('race_date', { mode: 'timestamp' }).notNull(),
+  distanceMeters: real('distance_meters').notNull(),
+  targetType: text('target_type').notNull(),
+  targetTimeSec: integer('target_time_sec'),
+  priority: text('priority').notNull().default('primary'),
+  status: text('status').notNull().default('active'),
+  notes: text('notes'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const healthDailyMetrics = sqliteTable('health_daily_metrics', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(),
+  sleepMinutes: integer('sleep_minutes'),
+  deepSleepMinutes: integer('deep_sleep_minutes'),
+  remSleepMinutes: integer('rem_sleep_minutes'),
+  hrv: real('hrv'),
+  restingHr: integer('resting_hr'),
+  source: text('source').notNull(),
+  payloadJson: text('payload_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const stravaEvents = sqliteTable('strava_events', {
+  id: text('id').primaryKey(),
+  aspectType: text('aspect_type').notNull(),
+  objectType: text('object_type').notNull(),
+  objectId: text('object_id').notNull(),
+  ownerId: text('owner_id'),
+  eventTime: integer('event_time', { mode: 'timestamp' }).notNull(),
+  payloadHash: text('payload_hash').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  status: text('status').notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextRetryAt: integer('next_retry_at', { mode: 'timestamp' }),
+  lockedBy: text('locked_by'),
+  lockedUntil: integer('locked_until', { mode: 'timestamp' }),
+  errorCode: text('error_code'),
+  lastError: text('last_error'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  processedAt: integer('processed_at', { mode: 'timestamp' }),
+})
+
+export const lifeEvents = sqliteTable('life_events', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  occurredAt: integer('occurred_at', { mode: 'timestamp' }).notNull(),
+  mediaUrl: text('media_url'),
+  rawText: text('raw_text'),
+  observationJson: text('observation_json'),
+  model: text('model'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const knowledgeDocuments = sqliteTable('knowledge_documents', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  source: text('source'),
+  metadataJson: text('metadata_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const knowledgeChunks = sqliteTable('knowledge_chunks', {
+  id: text('id').primaryKey(),
+  documentId: text('document_id')
+    .notNull()
+    .references(() => knowledgeDocuments.id, { onDelete: 'cascade' }),
+  chunkIndex: integer('chunk_index').notNull(),
+  content: text('content').notNull(),
+  metadataJson: text('metadata_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const knowledgeEmbeddings = sqliteTable('knowledge_embeddings', {
+  id: text('id').primaryKey(),
+  chunkId: text('chunk_id')
+    .notNull()
+    .references(() => knowledgeChunks.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  vectorJson: text('vector_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const ragRetrievalLogs = sqliteTable('rag_retrieval_logs', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+  query: text('query').notNull(),
+  queryPlanJson: text('query_plan_json'),
+  resultChunkIdsJson: text('result_chunk_ids_json').notNull(),
+  scoresJson: text('scores_json'),
+  selectedChunkIdsJson: text('selected_chunk_ids_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const ragEvalCases = sqliteTable('rag_eval_cases', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  query: text('query').notNull(),
+  expectedTopicsJson: text('expected_topics_json'),
+  expectedChunkIdsJson: text('expected_chunk_ids_json'),
+  notes: text('notes'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const prFeedbackEvents = sqliteTable('pr_feedback_events', {
+  id: text('id').primaryKey(),
+  targetType: text('target_type').notNull(),
+  targetId: text('target_id').notNull(),
+  eventType: text('event_type').notNull(),
+  value: text('value'),
+  note: text('note'),
+  metadataJson: text('metadata_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const prMetricEvents = sqliteTable('pr_metric_events', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+  metricName: text('metric_name').notNull(),
+  metricValue: real('metric_value').notNull(),
+  dimensionsJson: text('dimensions_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const conversationThreads = sqliteTable('conversation_threads', {
+  id: text('id').primaryKey(),
+  title: text('title'),
+  status: text('status').notNull().default('active'),
+  summary: text('summary'),
+  summaryMemoryRefsJson: text('summary_memory_refs_json'),
+  lastMessageAt: integer('last_message_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+export const conversationMessages = sqliteTable('conversation_messages', {
+  id: text('id').primaryKey(),
+  threadId: text('thread_id')
+    .notNull()
+    .references(() => conversationThreads.id, { onDelete: 'cascade' }),
+  runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+  role: text('role').notNull(),
+  content: text('content').notNull(),
+  memoryRefsJson: text('memory_refs_json'),
+  contextJson: text('context_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
 // 导出类型
 export type Activity = typeof activities.$inferSelect
 export type NewActivity = typeof activities.$inferInsert
@@ -139,3 +531,66 @@ export type NewSyncLog = typeof syncLogs.$inferInsert
 
 export type ActivityInsight = typeof activityInsights.$inferSelect
 export type NewActivityInsight = typeof activityInsights.$inferInsert
+
+export type ActivityReview = typeof activityReviews.$inferSelect
+export type NewActivityReview = typeof activityReviews.$inferInsert
+
+export type ReviewAnnotation = typeof reviewAnnotations.$inferSelect
+export type NewReviewAnnotation = typeof reviewAnnotations.$inferInsert
+
+export type AgentRun = typeof agentRuns.$inferSelect
+export type NewAgentRun = typeof agentRuns.$inferInsert
+
+export type AgentStateSnapshot = typeof agentStateSnapshots.$inferSelect
+export type NewAgentStateSnapshot = typeof agentStateSnapshots.$inferInsert
+
+export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
+export type NewNotificationDelivery = typeof notificationDeliveries.$inferInsert
+
+export type SubjectiveFeedback = typeof subjectiveFeedback.$inferSelect
+export type NewSubjectiveFeedback = typeof subjectiveFeedback.$inferInsert
+
+export type MemoryItem = typeof memoryItems.$inferSelect
+export type NewMemoryItem = typeof memoryItems.$inferInsert
+
+export type MemoryEvent = typeof memoryEvents.$inferSelect
+export type NewMemoryEvent = typeof memoryEvents.$inferInsert
+
+export type FriendProfile = typeof friendProfile.$inferSelect
+export type NewFriendProfile = typeof friendProfile.$inferInsert
+
+export type FriendDiaryEntry = typeof friendDiaryEntries.$inferSelect
+export type NewFriendDiaryEntry = typeof friendDiaryEntries.$inferInsert
+
+export type RaceGoal = typeof raceGoals.$inferSelect
+export type NewRaceGoal = typeof raceGoals.$inferInsert
+
+export type HealthDailyMetric = typeof healthDailyMetrics.$inferSelect
+export type NewHealthDailyMetric = typeof healthDailyMetrics.$inferInsert
+
+export type StravaEvent = typeof stravaEvents.$inferSelect
+export type NewStravaEvent = typeof stravaEvents.$inferInsert
+
+export type LifeEvent = typeof lifeEvents.$inferSelect
+export type NewLifeEvent = typeof lifeEvents.$inferInsert
+
+export type KnowledgeDocument = typeof knowledgeDocuments.$inferSelect
+export type NewKnowledgeDocument = typeof knowledgeDocuments.$inferInsert
+
+export type KnowledgeChunk = typeof knowledgeChunks.$inferSelect
+export type NewKnowledgeChunk = typeof knowledgeChunks.$inferInsert
+
+export type RagRetrievalLog = typeof ragRetrievalLogs.$inferSelect
+export type NewRagRetrievalLog = typeof ragRetrievalLogs.$inferInsert
+
+export type PrFeedbackEvent = typeof prFeedbackEvents.$inferSelect
+export type NewPrFeedbackEvent = typeof prFeedbackEvents.$inferInsert
+
+export type PrMetricEvent = typeof prMetricEvents.$inferSelect
+export type NewPrMetricEvent = typeof prMetricEvents.$inferInsert
+
+export type ConversationThread = typeof conversationThreads.$inferSelect
+export type NewConversationThread = typeof conversationThreads.$inferInsert
+
+export type ConversationMessage = typeof conversationMessages.$inferSelect
+export type NewConversationMessage = typeof conversationMessages.$inferInsert

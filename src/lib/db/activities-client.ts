@@ -4,6 +4,8 @@ import path from 'node:path'
 import { createClient, type Client } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
 
+import { getRuntimeSettings } from '@/lib/runtime-config'
+
 import * as schema from './activities-schema'
 
 /**
@@ -13,24 +15,81 @@ import * as schema from './activities-schema'
  * 这是独立于 admin 配置库(src/lib/db.ts 的 admin.db)的第二个连接,专用于 activities/
  * splits/syncLogs/userProfile/activityInsights 这套表。
  *
- * 库路径由 ACTIVITIES_DATABASE_URL 指定(部署时指向共享卷的 shared.db),
- * 默认本地 file:./data/shared.db。开启 WAL 降低与主站只读访问的锁争用。
+ * 库路径优先使用配置库里的 DATABASE_URL / DATABASE_AUTH_TOKEN。
+ * ACTIVITIES_DATABASE_URL 仍作为部署期显式覆盖；默认本地 file:./data/shared.db。
  */
-const getDatabaseUrl = () => {
-  const url = process.env.ACTIVITIES_DATABASE_URL || 'file:./data/shared.db'
+interface DatabaseConfig {
+  url: string
+  authToken?: string
+}
 
-  if (url.startsWith('file:')) {
-    const filePath = url.replace(/^file:/, '')
-    const dir = path.dirname(path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath))
-    mkdirSync(dir, { recursive: true })
+/**
+ * 数据采集与 admin 配置库解耦。
+ *
+ * Reason: 活动/健康等数据采集不能因为 admin 配置库(app_settings)短暂不可用就中断,
+ * 也不能把写入静默切换到本地默认库(会造成数据分裂)。因此:
+ * 1) 对已解析出的数据库配置做短 TTL 缓存,减少热路径对配置库的同步依赖;
+ * 2) 保留 last-known-good:解析不到目标库(通常是配置库不可用且 env 未提供凭据)时,
+ *    复用上次成功解析的目标库,而不是回退到 file: 默认库。
+ * 只有在冷启动、从未成功解析过配置时,才回退本地默认库(供首次部署/本地开发)。
+ */
+const DB_CONFIG_TTL_MS = 30_000
+let resolvedDbConfig: { config: DatabaseConfig; expiresAt: number } | undefined
+
+function ensureLocalDir(url: string) {
+  if (!url.startsWith('file:')) return
+  const filePath = url.replace(/^file:/, '')
+  const dir = path.dirname(path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath))
+  mkdirSync(dir, { recursive: true })
+}
+
+async function getDatabaseConfig(): Promise<DatabaseConfig> {
+  const now = Date.now()
+  if (resolvedDbConfig && resolvedDbConfig.expiresAt > now) {
+    return resolvedDbConfig.config
   }
 
-  return url
+  let settings: Record<string, string> = {}
+  try {
+    settings = await getRuntimeSettings({ force: true })
+  } catch (error) {
+    // getRuntimeSettings 内部已吞掉配置库错误;这里再兜一层,保证配置解析永不抛出。
+    console.warn('[activities-client] 读取运行时配置失败:', (error as Error).message)
+  }
+
+  const url =
+    process.env.ACTIVITIES_DATABASE_URL ||
+    settings.ACTIVITIES_DATABASE_URL ||
+    settings.DATABASE_URL
+  const authToken =
+    process.env.ACTIVITIES_DATABASE_AUTH_TOKEN ||
+    settings.ACTIVITIES_DATABASE_AUTH_TOKEN ||
+    settings.DATABASE_AUTH_TOKEN
+
+  if (url) {
+    const config: DatabaseConfig = { url, authToken }
+    ensureLocalDir(url)
+    resolvedDbConfig = { config, expiresAt: now + DB_CONFIG_TTL_MS }
+    return config
+  }
+
+  if (resolvedDbConfig) {
+    // 配置库不可用且 env 未提供凭据:复用上次已知的目标库,避免数据静默写入本地默认库。
+    console.warn('[activities-client] 无法解析数据库配置,复用上次已知的目标库')
+    resolvedDbConfig = { config: resolvedDbConfig.config, expiresAt: now + DB_CONFIG_TTL_MS }
+    return resolvedDbConfig.config
+  }
+
+  // 冷启动且从未成功解析过配置:回退本地默认库。
+  const fallback: DatabaseConfig = { url: 'file:./data/shared.db' }
+  ensureLocalDir(fallback.url)
+  return fallback
 }
 
 type DbInstance = ReturnType<typeof drizzle<typeof schema>>
 
 let cachedDb: { db: DbInstance; signature: string } | undefined
+let cachedClient: { client: Client; signature: string } | undefined
 
 async function ensureActivitiesSchema(client: Client) {
   await client.execute('PRAGMA foreign_keys = ON;')
@@ -103,6 +162,301 @@ async function ensureActivitiesSchema(client: Client) {
         created_at integer DEFAULT (unixepoch()) NOT NULL,
         updated_at integer DEFAULT (unixepoch()) NOT NULL
       )`,
+      `CREATE TABLE IF NOT EXISTS agent_runs (
+        id text PRIMARY KEY NOT NULL,
+        idempotency_key text NOT NULL,
+        trigger text NOT NULL,
+        subject_type text,
+        subject_id text,
+        status text NOT NULL DEFAULT 'pending',
+        input_hash text,
+        builder_version text NOT NULL,
+        model text,
+        attempts integer NOT NULL DEFAULT 0,
+        last_step text,
+        locked_by text,
+        locked_until integer,
+        next_retry_at integer,
+        error_code text,
+        error_message text,
+        started_at integer,
+        completed_at integer,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS activity_reviews (
+        id text PRIMARY KEY NOT NULL,
+        run_id text,
+        subject_type text NOT NULL,
+        subject_id text NOT NULL,
+        activity_id text,
+        kind text NOT NULL,
+        status text NOT NULL DEFAULT 'generated',
+        features_json text NOT NULL,
+        context_json text,
+        content text NOT NULL,
+        model text NOT NULL,
+        provider text,
+        input_hash text NOT NULL,
+        builder_version text NOT NULL,
+        prompt_version text NOT NULL,
+        superseded_by text,
+        is_current integer NOT NULL DEFAULT 1,
+        error_message text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON UPDATE no action ON DELETE set null,
+        FOREIGN KEY (activity_id) REFERENCES activities(id) ON UPDATE no action ON DELETE set null
+      )`,
+      `CREATE TABLE IF NOT EXISTS review_annotations (
+        id text PRIMARY KEY NOT NULL,
+        review_id text NOT NULL,
+        activity_id text NOT NULL,
+        type text NOT NULL,
+        at_seconds integer,
+        kilometer real,
+        label text NOT NULL,
+        content text NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (review_id) REFERENCES activity_reviews(id) ON UPDATE no action ON DELETE cascade,
+        FOREIGN KEY (activity_id) REFERENCES activities(id) ON UPDATE no action ON DELETE cascade
+      )`,
+      `CREATE TABLE IF NOT EXISTS agent_state_snapshots (
+        id text PRIMARY KEY NOT NULL,
+        run_id text NOT NULL,
+        step text NOT NULL,
+        state_json text NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON UPDATE no action ON DELETE cascade
+      )`,
+      `CREATE TABLE IF NOT EXISTS notification_deliveries (
+        id text PRIMARY KEY NOT NULL,
+        review_id text,
+        channel text NOT NULL,
+        recipient text NOT NULL,
+        title text NOT NULL,
+        content text NOT NULL,
+        payload_json text,
+        status text NOT NULL DEFAULT 'pending',
+        attempts integer NOT NULL DEFAULT 0,
+        provider_message_id text,
+        error_code text,
+        last_error text,
+        next_retry_at integer,
+        locked_by text,
+        locked_until integer,
+        sent_at integer,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (review_id) REFERENCES activity_reviews(id) ON UPDATE no action ON DELETE set null
+      )`,
+      `CREATE TABLE IF NOT EXISTS subjective_feedback (
+        id text PRIMARY KEY NOT NULL,
+        activity_id text,
+        mood text,
+        rpe integer,
+        pain_json text,
+        note text,
+        source text NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (activity_id) REFERENCES activities(id) ON UPDATE no action ON DELETE set null
+      )`,
+      `CREATE TABLE IF NOT EXISTS memory_items (
+        id text PRIMARY KEY NOT NULL,
+        type text NOT NULL,
+        status text NOT NULL DEFAULT 'candidate',
+        content text NOT NULL,
+        evidence_json text NOT NULL,
+        confidence real NOT NULL DEFAULT 0,
+        source text NOT NULL,
+        first_seen_at integer DEFAULT (unixepoch()) NOT NULL,
+        last_seen_at integer DEFAULT (unixepoch()) NOT NULL,
+        expires_at integer,
+        version integer NOT NULL DEFAULT 1,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS memory_events (
+        id text PRIMARY KEY NOT NULL,
+        memory_id text,
+        run_id text,
+        idempotency_key text NOT NULL,
+        action text NOT NULL,
+        status text NOT NULL DEFAULT 'applied',
+        patch_json text NOT NULL,
+        actor text NOT NULL,
+        expected_version integer,
+        resulting_version integer,
+        reason text,
+        conflict_reason text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (memory_id) REFERENCES memory_items(id) ON UPDATE no action ON DELETE set null,
+        FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON UPDATE no action ON DELETE set null
+      )`,
+      `CREATE TABLE IF NOT EXISTS friend_profile (
+        id text PRIMARY KEY NOT NULL,
+        display_name text,
+        companion_style_json text,
+        active_goals_json text,
+        training_preferences_json text,
+        injury_watchlist_json text,
+        recent_state_json text,
+        do_not_assume_json text,
+        projection_version integer NOT NULL DEFAULT 1,
+        source_diary_id text,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS friend_diary_entries (
+        id text PRIMARY KEY NOT NULL,
+        period_start integer NOT NULL,
+        period_end integer NOT NULL,
+        content text NOT NULL,
+        observations_json text,
+        memory_patches_json text,
+        model text NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS race_goals (
+        id text PRIMARY KEY NOT NULL,
+        name text NOT NULL,
+        race_date integer NOT NULL,
+        distance_meters real NOT NULL,
+        target_type text NOT NULL,
+        target_time_sec integer,
+        priority text NOT NULL DEFAULT 'primary',
+        status text NOT NULL DEFAULT 'active',
+        notes text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS health_daily_metrics (
+        id text PRIMARY KEY NOT NULL,
+        date text NOT NULL,
+        sleep_minutes integer,
+        deep_sleep_minutes integer,
+        rem_sleep_minutes integer,
+        hrv real,
+        resting_hr integer,
+        source text NOT NULL,
+        payload_json text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS strava_events (
+        id text PRIMARY KEY NOT NULL,
+        aspect_type text NOT NULL,
+        object_type text NOT NULL,
+        object_id text NOT NULL,
+        owner_id text,
+        event_time integer NOT NULL,
+        payload_hash text NOT NULL,
+        idempotency_key text NOT NULL,
+        payload_json text NOT NULL,
+        status text NOT NULL DEFAULT 'pending',
+        attempts integer NOT NULL DEFAULT 0,
+        next_retry_at integer,
+        locked_by text,
+        locked_until integer,
+        error_code text,
+        last_error text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        processed_at integer
+      )`,
+      `CREATE TABLE IF NOT EXISTS life_events (
+        id text PRIMARY KEY NOT NULL,
+        type text NOT NULL,
+        occurred_at integer NOT NULL,
+        media_url text,
+        raw_text text,
+        observation_json text,
+        model text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS knowledge_documents (
+        id text PRIMARY KEY NOT NULL,
+        title text NOT NULL,
+        source text,
+        metadata_json text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS knowledge_chunks (
+        id text PRIMARY KEY NOT NULL,
+        document_id text NOT NULL,
+        chunk_index integer NOT NULL,
+        content text NOT NULL,
+        metadata_json text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (document_id) REFERENCES knowledge_documents(id) ON UPDATE no action ON DELETE cascade
+      )`,
+      `CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+        id text PRIMARY KEY NOT NULL,
+        chunk_id text NOT NULL,
+        provider text NOT NULL,
+        model text NOT NULL,
+        vector_json text NOT NULL,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (chunk_id) REFERENCES knowledge_chunks(id) ON UPDATE no action ON DELETE cascade
+      )`,
+      `CREATE TABLE IF NOT EXISTS rag_retrieval_logs (
+        id text PRIMARY KEY NOT NULL,
+        run_id text,
+        query text NOT NULL,
+        query_plan_json text,
+        result_chunk_ids_json text NOT NULL,
+        scores_json text,
+        selected_chunk_ids_json text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON UPDATE no action ON DELETE set null
+      )`,
+      `CREATE TABLE IF NOT EXISTS rag_eval_cases (
+        id text PRIMARY KEY NOT NULL,
+        name text NOT NULL,
+        query text NOT NULL,
+        expected_topics_json text,
+        expected_chunk_ids_json text,
+        notes text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS pr_feedback_events (
+        id text PRIMARY KEY NOT NULL,
+        target_type text NOT NULL,
+        target_id text NOT NULL,
+        event_type text NOT NULL,
+        value text,
+        note text,
+        metadata_json text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS pr_metric_events (
+        id text PRIMARY KEY NOT NULL,
+        run_id text,
+        metric_name text NOT NULL,
+        metric_value real NOT NULL,
+        dimensions_json text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON UPDATE no action ON DELETE set null
+      )`,
+      `CREATE TABLE IF NOT EXISTS conversation_threads (
+        id text PRIMARY KEY NOT NULL,
+        title text,
+        status text NOT NULL DEFAULT 'active',
+        summary text,
+        summary_memory_refs_json text,
+        last_message_at integer,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS conversation_messages (
+        id text PRIMARY KEY NOT NULL,
+        thread_id text NOT NULL,
+        run_id text,
+        role text NOT NULL,
+        content text NOT NULL,
+        memory_refs_json text,
+        context_json text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL,
+        FOREIGN KEY (thread_id) REFERENCES conversation_threads(id) ON UPDATE no action ON DELETE cascade,
+        FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON UPDATE no action ON DELETE set null
+      )`,
     ],
     'write',
   )
@@ -117,15 +471,48 @@ async function ensureActivitiesSchema(client: Client) {
   await client.execute('CREATE INDEX IF NOT EXISTS idx_activities_source_start_time ON activities(source, start_time)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_splits_activity_id ON splits(activity_id)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_sync_logs_source_started_at ON sync_logs(source, started_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_activity_reviews_activity_id ON activity_reviews(activity_id)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_activity_reviews_kind_created_at ON activity_reviews(kind, created_at)')
+  await client.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_reviews_idempotency ON activity_reviews(kind, subject_type, subject_id, input_hash)',
+  )
+  await client.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_reviews_current_subject ON activity_reviews(kind, subject_type, subject_id) WHERE is_current = 1',
+  )
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_review_annotations_review_id ON review_annotations(review_id)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_agent_runs_trigger_status_created_at ON agent_runs(trigger, status, created_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_agent_runs_subject ON agent_runs(subject_type, subject_id)')
+  await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_idempotency ON agent_runs(idempotency_key)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_agent_state_snapshots_run_id_created_at ON agent_state_snapshots(run_id, created_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_created_at ON notification_deliveries(status, created_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_review_id ON notification_deliveries(review_id)')
+  await client.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_unique_target ON notification_deliveries(review_id, channel, recipient)',
+  )
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_subjective_feedback_activity_id ON subjective_feedback(activity_id, created_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_items_type_status ON memory_items(type, status)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_items_last_seen_at ON memory_items(last_seen_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_events_memory_id_created_at ON memory_events(memory_id, created_at)')
+  await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_events_idempotency ON memory_events(idempotency_key)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_friend_diary_entries_period ON friend_diary_entries(period_start, period_end)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_race_goals_status_race_date ON race_goals(status, race_date)')
+  await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_health_daily_metrics_date_source ON health_daily_metrics(date, source)')
+  await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_strava_events_unique ON strava_events(idempotency_key)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_strava_events_status_retry ON strava_events(status, next_retry_at, created_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_life_events_type_occurred_at ON life_events(type, occurred_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_document_id ON knowledge_chunks(document_id)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_rag_retrieval_logs_run_id ON rag_retrieval_logs(run_id)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_pr_feedback_events_target ON pr_feedback_events(target_type, target_id, created_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_pr_metric_events_name_created_at ON pr_metric_events(metric_name, created_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_conversation_messages_thread_id_created_at ON conversation_messages(thread_id, created_at)')
 }
 
 export async function getActivitiesDb() {
-  const url = getDatabaseUrl()
-  const authToken = process.env.ACTIVITIES_DATABASE_AUTH_TOKEN
+  const { url, authToken } = await getDatabaseConfig()
   const signature = `${url}\n${authToken ?? ''}`
 
   if (!cachedDb || cachedDb.signature !== signature) {
-    const client = createClient({ url, authToken })
+    const client = await getActivitiesClient()
     // Reason: WAL 模式允许主站只读与 admin 写并发,减少 SQLITE_BUSY 锁错误。
     // 仅对本地 file: 库执行(远程 libsql 不需要也不支持该 PRAGMA)。
     if (url.startsWith('file:')) {
@@ -142,6 +529,20 @@ export async function getActivitiesDb() {
   }
 
   return cachedDb.db
+}
+
+export async function getActivitiesClient() {
+  const { url, authToken } = await getDatabaseConfig()
+  const signature = `${url}\n${authToken ?? ''}`
+
+  if (!cachedClient || cachedClient.signature !== signature) {
+    cachedClient = {
+      client: createClient({ url, authToken }),
+      signature,
+    }
+  }
+
+  return cachedClient.client
 }
 
 // 兼容别名:搬迁来的 processor.ts/service.ts 用 getDb()
