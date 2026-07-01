@@ -68,7 +68,7 @@ export function DashboardView({ settings }: DashboardViewProps) {
   }
 
   useEffect(() => {
-    fetchStats()
+    void Promise.resolve().then(fetchStats)
     const interval = setInterval(fetchStats, 30000)
     return () => clearInterval(interval)
   }, [])

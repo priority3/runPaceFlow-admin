@@ -16,6 +16,7 @@ import {
   Shield,
   XCircle,
 } from 'lucide-react'
+import Link from 'next/link'
 import { useEffect, useState, useTransition } from 'react'
 
 import { logoutAction } from '@/app/actions'
@@ -66,13 +67,13 @@ export function MonitorDashboard({ initialData }: MonitorDashboardProps) {
 
         <div className="scrollbar-subtle min-[520px]:flex-1 min-[520px]:overflow-y-auto">
           <nav className="space-y-1 p-3">
-            <a
+            <Link
               href="/"
               className="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm transition-colors"
             >
               <Server className="h-4 w-4" />
               运维控制台
-            </a>
+            </Link>
             <div className="bg-sidebar-accent text-sidebar-accent-foreground flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm font-medium">
               <Activity className="h-4 w-4" />
               系统监控

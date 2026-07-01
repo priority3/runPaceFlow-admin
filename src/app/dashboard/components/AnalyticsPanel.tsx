@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BarChart3,
   Eye,
@@ -54,7 +54,7 @@ export function AnalyticsPanel() {
   const [refreshing, setRefreshing] = useState(false)
   const [days, setDays] = useState(14)
 
-  const fetchAnalytics = async (rangeDays?: number) => {
+  const fetchAnalytics = useCallback(async (rangeDays?: number) => {
     const d = rangeDays ?? days
     // Reason: 仅首次（无数据）显示整页加载态；后续刷新只标记 refreshing，避免清空已渲染内容造成闪烁
     setData(prev => {
@@ -78,7 +78,7 @@ export function AnalyticsPanel() {
     } catch {}
     setLoading(false)
     setRefreshing(false)
-  }
+  }, [days])
 
   function handleDaysChange(newDays: number) {
     setDays(newDays)
@@ -86,10 +86,10 @@ export function AnalyticsPanel() {
   }
 
   useEffect(() => {
-    fetchAnalytics()
+    void Promise.resolve().then(() => fetchAnalytics())
     const interval = setInterval(() => fetchAnalytics(), 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [fetchAnalytics])
 
   if (loading) return <LoadingState />
   if (!data) return <div className="text-muted-foreground p-8 text-center text-sm">无法加载分析数据</div>

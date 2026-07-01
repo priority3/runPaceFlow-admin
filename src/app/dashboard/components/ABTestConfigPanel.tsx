@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { FlaskConical, Plus, Trash2 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -26,11 +26,7 @@ export function ABTestConfigPanel() {
   // Reason: 删除是不可逆操作，需内联二次确认，记录待确认的测试 id
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchTests()
-  }, [])
-
-  const fetchTests = async () => {
+  const fetchTests = useCallback(async () => {
     try {
       const res = await fetch('/api/analytics/ab-test-config', { cache: 'no-store' })
       if (res.ok) {
@@ -43,7 +39,11 @@ export function ABTestConfigPanel() {
       toastError(`加载 A/B 测试失败: ${e instanceof Error ? e.message : '网络错误'}`)
     }
     setLoading(false)
-  }
+  }, [toastError])
+
+  useEffect(() => {
+    void Promise.resolve().then(fetchTests)
+  }, [fetchTests])
 
   const handleCreate = async () => {
     if (!newTest.name || !newTest.variants) return

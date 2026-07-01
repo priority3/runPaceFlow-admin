@@ -48,7 +48,7 @@ export function ConnectionHealthPanel() {
   }
 
   useEffect(() => {
-    fetchHealth()
+    void Promise.resolve().then(fetchHealth)
     const interval = setInterval(fetchHealth, 15_000)
     return () => clearInterval(interval)
   }, [])
