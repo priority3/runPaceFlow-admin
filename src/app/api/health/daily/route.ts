@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { withAuth, withHealthImportAuth, validateBody } from '@/lib/api-helpers'
+import { withAuth, withHealthImportAuth } from '@/lib/api-helpers'
 import { getLatestHealthDailyMetrics, upsertHealthDailyMetric } from '@/lib/pr/health'
 import { projectFriendProfile } from '@/lib/pr/memory'
 
@@ -18,6 +18,15 @@ function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
   const parsed = new Date(`${value}T00:00:00Z`)
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+/**
+ * Today's date as YYYY-MM-DD in Asia/Shanghai.
+ * Reason: reporters (iOS Shortcuts) may fail to populate `date`; a morning sleep
+ * report is for "today" in the user's timezone, so default to CST rather than 400.
+ */
+function todayYmd(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
 }
 
 export const GET = withAuth(async (request) => {
@@ -38,10 +47,9 @@ export const POST = withHealthImportAuth(async (request) => {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const invalid = validateBody(body, ['date'])
-  if (invalid) return invalid
-
-  const date = String(body.date)
+  // date is optional: default to today (Asia/Shanghai) when the reporter omits it.
+  const rawDate = typeof body.date === 'string' ? body.date.trim() : ''
+  const date = rawDate || todayYmd()
   if (!isValidDate(date)) {
     return NextResponse.json({ error: 'date must be a valid YYYY-MM-DD string' }, { status: 400 })
   }
