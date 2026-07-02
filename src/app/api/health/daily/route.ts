@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { withAuth, withHealthImportAuth } from '@/lib/api-helpers'
+import { deriveSleep } from '@/lib/pr/health-derive'
 import { getLatestHealthDailyMetrics, upsertHealthDailyMetric } from '@/lib/pr/health'
 import { projectFriendProfile } from '@/lib/pr/memory'
 
@@ -54,18 +55,47 @@ export const POST = withHealthImportAuth(async (request) => {
     return NextResponse.json({ error: 'date must be a valid YYYY-MM-DD string' }, { status: 400 })
   }
 
+  // Two ingest shapes, both supported:
+  // 1) Rich (new shortcut): raw sleepSegments/napSegments — server derives aggregates.
+  // 2) Direct (legacy): sleepMinutes/deepSleepMinutes/... already computed by the caller.
+  const hasSegments = Array.isArray(body.sleepSegments)
+  const derived = hasSegments ? deriveSleep(body.sleepSegments, body.napSegments) : null
+
+  const audioAvgDb = toNumberOrNull(body.audioAvgDb ?? body.envAudioDb ?? body.environmentalAudioDb)
+  const audioMaxDb = toNumberOrNull(body.audioMaxDb)
+
+  // Raw facts + server-derived extras are preserved in payload for the PR agent to
+  // converse over (bedtime, wake, awakenings, per-segment timeline, naps, audio peak).
+  const payload = hasSegments
+    ? {
+        sleepSegments: body.sleepSegments,
+        napSegments: Array.isArray(body.napSegments) ? body.napSegments : [],
+        audio: { avgDb: audioAvgDb, maxDb: audioMaxDb },
+        derived: derived
+          ? {
+              napMinutes: derived.napMinutes,
+              coreMinutes: derived.coreMinutes,
+              inBedMinutes: derived.inBedMinutes,
+              awakeMinutes: derived.awakeMinutes,
+              awakenings: derived.awakenings,
+              bedtime: derived.bedtime,
+              wakeTime: derived.wakeTime,
+            }
+          : undefined,
+      }
+    : (body.payload ?? null)
+
   const metric = await upsertHealthDailyMetric({
     date,
-    sleepMinutes: toNumberOrNull(body.sleepMinutes),
-    deepSleepMinutes: toNumberOrNull(body.deepSleepMinutes),
-    remSleepMinutes: toNumberOrNull(body.remSleepMinutes),
+    sleepMinutes: derived ? derived.sleepMinutes : toNumberOrNull(body.sleepMinutes),
+    deepSleepMinutes: derived ? derived.deepSleepMinutes : toNumberOrNull(body.deepSleepMinutes),
+    remSleepMinutes: derived ? derived.remSleepMinutes : toNumberOrNull(body.remSleepMinutes),
     hrv: toNumberOrNull(body.hrv),
     restingHr: toNumberOrNull(body.restingHr),
     steps: toNumberOrNull(body.steps),
-    // Reason: 快捷指令示例里用的键名是 environmentalAudioDb,这里同时接受 envAudioDb 两种写法。
-    envAudioDb: toNumberOrNull(body.envAudioDb ?? body.environmentalAudioDb),
+    envAudioDb: audioAvgDb,
     source: typeof body.source === 'string' && body.source.trim() ? body.source.trim() : undefined,
-    payload: body.payload ?? null,
+    payload,
   })
 
   // Reason: profile projection is a downstream nicety; a failure here must not fail
