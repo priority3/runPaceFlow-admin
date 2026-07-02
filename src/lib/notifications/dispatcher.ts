@@ -6,6 +6,7 @@ import { getRuntimeSettings } from '@/lib/runtime-config'
 
 import {
   sendWeChatTestAccountTemplate,
+  sendWeChatTestAccountText,
   type WeChatTestAccountConfig,
 } from './wechat-test-account'
 
@@ -102,11 +103,22 @@ export async function dispatchPendingNotifications(limit = 10): Promise<Notifica
         continue
       }
 
-      const sent = await sendWeChatTestAccountTemplate(config, {
-        title: row.title,
-        content: row.content,
-        url: appUrl || undefined,
-      })
+      // Prefer a plain-text customer-service message (full content, reads like a chat
+      // message). Fall back to the template card if the 48h CS window is closed.
+      let sent: { providerMessageId?: string }
+      try {
+        sent = await sendWeChatTestAccountText(config, { title: row.title, content: row.content })
+      } catch (textErr) {
+        console.warn(
+          '[dispatch] 客服文本消息发送失败,回退模板消息:',
+          textErr instanceof Error ? textErr.message : String(textErr),
+        )
+        sent = await sendWeChatTestAccountTemplate(config, {
+          title: row.title,
+          content: row.content,
+          url: appUrl || undefined,
+        })
+      }
 
       result.sent++
       await db

@@ -59,6 +59,35 @@ function compactText(text: string, maxLength: number) {
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`
 }
 
+/**
+ * Send a plain-text customer-service message (客服消息). Unlike a template message,
+ * this delivers the full summary as a normal chat message. Requires the recipient to
+ * have interacted with the test account within the last 48h (otherwise WeChat rejects
+ * with errcode 45015 and the caller should fall back to a template message).
+ */
+export async function sendWeChatTestAccountText(
+  config: WeChatTestAccountConfig,
+  message: { title: string; content: string },
+) {
+  const accessToken = await getWeChatTestAccountAccessToken(config)
+  const endpoint = new URL('https://api.weixin.qq.com/cgi-bin/message/custom/send')
+  endpoint.searchParams.set('access_token', accessToken)
+
+  // Strip markdown emphasis so it reads cleanly as a plain message; keep newlines.
+  const body = `${message.title}\n\n${message.content}`.replace(/\*\*/g, '').replace(/`/g, '').trim()
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ touser: config.openId, msgtype: 'text', text: { content: body } }),
+  })
+  const data = (await response.json()) as TemplateSendResponse
+  if (!response.ok || data.errcode !== 0) {
+    throw new Error(data.errmsg || `微信客服消息发送失败: HTTP ${response.status} errcode=${data.errcode}`)
+  }
+  return { providerMessageId: data.msgid ? String(data.msgid) : undefined }
+}
+
 export async function sendWeChatTestAccountTemplate(
   config: WeChatTestAccountConfig,
   message: { title: string; content: string; url?: string },
