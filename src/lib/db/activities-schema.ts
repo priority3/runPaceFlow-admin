@@ -358,6 +358,8 @@ export const healthDailyMetrics = sqliteTable('health_daily_metrics', {
   remSleepMinutes: integer('rem_sleep_minutes'),
   hrv: real('hrv'),
   restingHr: integer('resting_hr'),
+  steps: integer('steps'),
+  envAudioDb: real('env_audio_db'),
   source: text('source').notNull(),
   payloadJson: text('payload_json'),
   createdAt: integer('created_at', { mode: 'timestamp' })

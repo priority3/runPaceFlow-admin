@@ -11,6 +11,8 @@ export interface HealthDailyMetricInput {
   remSleepMinutes?: number | null
   hrv?: number | null
   restingHr?: number | null
+  steps?: number | null
+  envAudioDb?: number | null
   source?: string
   payload?: unknown
 }
@@ -23,6 +25,8 @@ export interface HealthDailyMetricContext {
   remSleepMinutes: number | null
   hrv: number | null
   restingHr: number | null
+  steps: number | null
+  envAudioDb: number | null
   source: string
   payload: unknown
   recoveryLabel: 'good' | 'okay' | 'poor' | 'unknown'
@@ -51,6 +55,8 @@ function toContext(row: typeof healthDailyMetrics.$inferSelect): HealthDailyMetr
     remSleepMinutes: row.remSleepMinutes == null ? null : Number(row.remSleepMinutes),
     hrv,
     restingHr,
+    steps: row.steps == null ? null : Number(row.steps),
+    envAudioDb: row.envAudioDb == null ? null : Number(row.envAudioDb),
     source: row.source,
     payload: row.payloadJson ? JSON.parse(row.payloadJson) : null,
     recoveryLabel: recoveryLabel({ sleepMinutes, hrv, restingHr }),
@@ -77,6 +83,8 @@ export async function upsertHealthDailyMetric(
       remSleepMinutes: input.remSleepMinutes ?? null,
       hrv: input.hrv ?? null,
       restingHr: input.restingHr ?? null,
+      steps: input.steps ?? null,
+      envAudioDb: input.envAudioDb ?? null,
       source: input.source ?? 'healthkit',
       payloadJson: input.payload == null ? null : JSON.stringify(input.payload),
     })
@@ -88,6 +96,8 @@ export async function upsertHealthDailyMetric(
         remSleepMinutes: input.remSleepMinutes ?? null,
         hrv: input.hrv ?? null,
         restingHr: input.restingHr ?? null,
+        steps: input.steps ?? null,
+        envAudioDb: input.envAudioDb ?? null,
         payloadJson: input.payload == null ? null : JSON.stringify(input.payload),
       },
     })

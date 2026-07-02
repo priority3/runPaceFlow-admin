@@ -337,6 +337,8 @@ async function ensureActivitiesSchema(client: Client) {
         rem_sleep_minutes integer,
         hrv real,
         resting_hr integer,
+        steps integer,
+        env_audio_db real,
         source text NOT NULL,
         payload_json text,
         created_at integer DEFAULT (unixepoch()) NOT NULL
@@ -465,6 +467,19 @@ async function ensureActivitiesSchema(client: Client) {
   const existingColumns = new Set(columns.rows.map((row) => String((row as { name?: string }).name)))
   if (!existingColumns.has('route_coordinates')) {
     await client.execute('ALTER TABLE activities ADD COLUMN route_coordinates text')
+  }
+
+  // Reason: CREATE TABLE IF NOT EXISTS 不会给已存在的表补列,健康表新增的 steps/env_audio_db
+  // 需要对老库显式 ALTER(幂等:仅在缺列时执行)。
+  const healthColumns = await client.execute('PRAGMA table_info(health_daily_metrics)')
+  const existingHealthColumns = new Set(
+    healthColumns.rows.map((row) => String((row as { name?: string }).name)),
+  )
+  if (!existingHealthColumns.has('steps')) {
+    await client.execute('ALTER TABLE health_daily_metrics ADD COLUMN steps integer')
+  }
+  if (!existingHealthColumns.has('env_audio_db')) {
+    await client.execute('ALTER TABLE health_daily_metrics ADD COLUMN env_audio_db real')
   }
 
   await client.execute('CREATE INDEX IF NOT EXISTS idx_activities_source_id ON activities(source, source_id)')

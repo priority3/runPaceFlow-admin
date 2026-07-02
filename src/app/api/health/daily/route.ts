@@ -53,6 +53,9 @@ export const POST = withHealthImportAuth(async (request) => {
     remSleepMinutes: toNumberOrNull(body.remSleepMinutes),
     hrv: toNumberOrNull(body.hrv),
     restingHr: toNumberOrNull(body.restingHr),
+    steps: toNumberOrNull(body.steps),
+    // Reason: 快捷指令示例里用的键名是 environmentalAudioDb,这里同时接受 envAudioDb 两种写法。
+    envAudioDb: toNumberOrNull(body.envAudioDb ?? body.environmentalAudioDb),
     source: typeof body.source === 'string' && body.source.trim() ? body.source.trim() : undefined,
     payload: body.payload ?? null,
   })
