@@ -43,6 +43,30 @@ function asArray(value: unknown): SleepSegmentInput[] {
   return Array.isArray(value) ? (value as SleepSegmentInput[]) : []
 }
 
+/**
+ * Local hour (Asia/Shanghai) of an ISO timestamp, or null if unparseable.
+ * Used to separate night sleep from daytime naps when the reporter uploads a
+ * rolling 24h window (which, at wake time, also contains the previous day's naps).
+ */
+function shanghaiHour(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const t = Date.parse(value)
+  if (!Number.isFinite(t)) return null
+  const h = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    hour12: false,
+  }).format(new Date(t))
+  const n = parseInt(h, 10)
+  return Number.isFinite(n) ? n % 24 : null
+}
+
+/** A sleep segment counts as a daytime nap when it starts between 12:00 and 20:00 CST. */
+function isNapSegment(seg: SleepSegmentInput): boolean {
+  const hour = shanghaiHour(seg.start)
+  return hour != null && hour >= 12 && hour < 20
+}
+
 export interface DerivedSleep {
   sleepMinutes: number | null
   deepSleepMinutes: number | null
@@ -60,20 +84,29 @@ export interface DerivedSleep {
  * Derive recovery aggregates from raw night-sleep + daytime-nap segments.
  * "Asleep" = Core + Deep + REM (excludes In Bed and Awake), matching Apple's model.
  */
-export function deriveSleep(sleepSegments: unknown, napSegments: unknown): DerivedSleep {
-  const night = asArray(sleepSegments)
+export function deriveSleep(sleepSegments: unknown, extraNapSegments?: unknown): DerivedSleep {
+  const all = asArray(sleepSegments)
   let deep = 0
   let rem = 0
   let core = 0
   let inbed = 0
   let awake = 0
   let awakenings = 0
+  let napMinutes = 0
   const asleepStarts: number[] = []
   const asleepEnds: number[] = []
 
-  for (const seg of night) {
+  for (const seg of all) {
     const minutes = segmentMinutes(seg)
     const cls = classifyStage(typeof seg.stage === 'string' ? seg.stage : '')
+    const asleepStage = cls === 'deep' || cls === 'rem' || cls === 'core'
+
+    // Daytime naps are separated out so night-sleep totals stay clean.
+    if (isNapSegment(seg)) {
+      if (asleepStage) napMinutes += minutes
+      continue
+    }
+
     if (cls === 'deep') deep += minutes
     else if (cls === 'rem') rem += minutes
     else if (cls === 'core') core += minutes
@@ -82,7 +115,7 @@ export function deriveSleep(sleepSegments: unknown, napSegments: unknown): Deriv
       awake += minutes
       awakenings += 1
     }
-    if (cls === 'deep' || cls === 'rem' || cls === 'core') {
+    if (asleepStage) {
       const start = typeof seg.start === 'string' ? Date.parse(seg.start) : NaN
       const end = typeof seg.end === 'string' ? Date.parse(seg.end) : NaN
       if (Number.isFinite(start)) asleepStarts.push(start)
@@ -90,20 +123,23 @@ export function deriveSleep(sleepSegments: unknown, napSegments: unknown): Deriv
     }
   }
 
+  // Any explicitly-provided nap segments (legacy shape) add to the daytime total.
+  napMinutes += asArray(extraNapSegments).reduce((sum, seg) => sum + segmentMinutes(seg), 0)
+
   const asleep = core + deep + rem
-  const naps = asArray(napSegments).reduce((sum, seg) => sum + segmentMinutes(seg), 0)
+  const hasNight = asleepStarts.length > 0 || inbed > 0 || awake > 0
   const round = (n: number) => Math.round(n)
 
   return {
-    sleepMinutes: night.length ? round(asleep) : null,
-    deepSleepMinutes: night.length ? round(deep) : null,
-    remSleepMinutes: night.length ? round(rem) : null,
+    sleepMinutes: hasNight ? round(asleep) : null,
+    deepSleepMinutes: hasNight ? round(deep) : null,
+    remSleepMinutes: hasNight ? round(rem) : null,
     coreMinutes: round(core),
     inBedMinutes: round(inbed),
     awakeMinutes: round(awake),
     awakenings,
     bedtime: asleepStarts.length ? new Date(Math.min(...asleepStarts)).toISOString() : null,
     wakeTime: asleepEnds.length ? new Date(Math.max(...asleepEnds)).toISOString() : null,
-    napMinutes: round(naps),
+    napMinutes: round(napMinutes),
   }
 }
