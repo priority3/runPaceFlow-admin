@@ -17,18 +17,27 @@ import { parseUserAgent } from '@/lib/ua-parser'
 
 export const dynamic = 'force-dynamic'
 
+function analyticsCorsHeaders(request: Request) {
+  const origin = request.headers.get('origin')
+
+  return {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Credentials': 'true',
+    'Cache-Control': 'no-store',
+    Vary: 'Origin',
+  }
+}
+
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) : s
 }
 
-export async function OPTIONS() {
+export async function OPTIONS(request: Request) {
   return new Response(null, {
     status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
+    headers: analyticsCorsHeaders(request),
   })
 }
 
@@ -36,7 +45,12 @@ export async function POST(request: Request) {
   // Rate limit: 30 requests per minute per IP
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
   const rateLimitResponse = rateLimit(`track:${ip}`, 30, 60_000)
-  if (rateLimitResponse) return rateLimitResponse
+  if (rateLimitResponse) {
+    for (const [key, value] of Object.entries(analyticsCorsHeaders(request))) {
+      rateLimitResponse.headers.set(key, value)
+    }
+    return rateLimitResponse
+  }
 
   try {
     const body = await request.json()
@@ -61,10 +75,7 @@ export async function POST(request: Request) {
         })
       }
       return NextResponse.json({ ok: true }, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store',
-        },
+        headers: analyticsCorsHeaders(request),
       })
     }
 
@@ -86,10 +97,7 @@ export async function POST(request: Request) {
         ],
       })
       return NextResponse.json({ ok: true }, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store',
-        },
+        headers: analyticsCorsHeaders(request),
       })
     }
 
@@ -97,7 +105,10 @@ export async function POST(request: Request) {
     const userAgent = request.headers.get('user-agent') || body.userAgent || ''
 
     if (!path || typeof path !== 'string') {
-      return NextResponse.json({ error: 'path is required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'path is required' },
+        { status: 400, headers: analyticsCorsHeaders(request) },
+      )
     }
 
     // Parse user agent
@@ -128,14 +139,9 @@ export async function POST(request: Request) {
       abTests: abTests && typeof abTests === 'object' ? abTests : null,
     })
 
-    return NextResponse.json({ ok: true }, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-store',
-      },
-    })
+    return NextResponse.json({ ok: true }, { headers: analyticsCorsHeaders(request) })
   } catch (error) {
     console.error('[Analytics] Track error:', error)
-    return NextResponse.json({ ok: true }) // Silent fail - don't break frontend
+    return NextResponse.json({ ok: true }, { headers: analyticsCorsHeaders(request) }) // Silent fail - don't break frontend
   }
 }
