@@ -12,16 +12,21 @@ export const dynamic = 'force-dynamic'
  * segment objects. Reason: iOS Shortcuts builds a text blob far more reliably than a
  * nested JSON array, so the collector uploads text and the server structures it.
  */
-function parseSegmentsText(text: string): Array<{ stage: string; start: string; end: string }> {
+function parseSegmentsText(
+  text: string,
+): Array<{ stage: string; start: string; end: string; minutes?: number }> {
   return text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [stage = '', start = '', end = ''] = line.split('|')
-      return { stage: stage.trim(), start: start.trim(), end: end.trim() }
+      const [stage = '', start = '', end = '', durRaw = ''] = line.split('|')
+      const durSec = Number(durRaw)
+      // Duration (seconds) is the reliable fallback when timestamps don't render.
+      const minutes = Number.isFinite(durSec) && durSec > 0 ? durSec / 60 : undefined
+      return { stage: stage.trim(), start: start.trim(), end: end.trim(), minutes }
     })
-    .filter((s) => s.start && s.end)
+    .filter((s) => s.stage && (s.minutes != null || (s.start && s.end)))
 }
 
 /** Coerces an optional numeric field, tolerating string inputs from Shortcuts JSON. */
@@ -91,6 +96,11 @@ export const POST = withHealthImportAuth(async (request) => {
   const payload = hasSegments
     ? {
         sleepSegments,
+        // TEMP diagnostic: keep the raw uploaded blob + reported sample count so we can
+        // see exactly what the shortcut produced when parsing yields nothing.
+        sleepSegmentsTextRaw:
+          typeof body.sleepSegmentsText === 'string' ? body.sleepSegmentsText.slice(0, 3000) : null,
+        sleepSampleCount: toNumberOrNull(body.sleepSampleCount),
         napSegments: Array.isArray(body.napSegments) ? body.napSegments : [],
         audio: { avgDb: audioAvgDb, maxDb: audioMaxDb },
         derived: derived

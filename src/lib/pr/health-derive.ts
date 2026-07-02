@@ -61,11 +61,13 @@ function shanghaiHour(value: unknown): number | null {
   return Number.isFinite(n) ? n % 24 : null
 }
 
-/** A sleep segment counts as a daytime nap when it starts between 12:00 and 20:00 CST. */
-function isNapSegment(seg: SleepSegmentInput): boolean {
-  const hour = shanghaiHour(seg.start)
+/** A start hour (CST) between 12:00 and 20:00 marks a daytime nap. */
+function isNapHour(hour: number | null): boolean {
   return hour != null && hour >= 12 && hour < 20
 }
+
+// Only sleep starting within this window before the latest wake counts as "last night".
+const NIGHT_WINDOW_MS = 14 * 60 * 60 * 1000
 
 export interface DerivedSleep {
   sleepMinutes: number | null
@@ -85,49 +87,56 @@ export interface DerivedSleep {
  * "Asleep" = Core + Deep + REM (excludes In Bed and Awake), matching Apple's model.
  */
 export function deriveSleep(sleepSegments: unknown, extraNapSegments?: unknown): DerivedSleep {
-  const all = asArray(sleepSegments)
+  const parsed = asArray(sleepSegments).map((seg) => {
+    const cls = classifyStage(typeof seg.stage === 'string' ? seg.stage : '')
+    return {
+      cls,
+      minutes: segmentMinutes(seg),
+      startMs: typeof seg.start === 'string' ? Date.parse(seg.start) : NaN,
+      endMs: typeof seg.end === 'string' ? Date.parse(seg.end) : NaN,
+      napHour: isNapHour(shanghaiHour(seg.start)),
+      asleep: cls === 'deep' || cls === 'rem' || cls === 'core',
+    }
+  })
+
+  // Daytime naps (start 12:00–20:00 CST) are pulled out so the night total stays clean.
+  let napMinutes = parsed
+    .filter((p) => p.napHour && p.asleep)
+    .reduce((sum, p) => sum + p.minutes, 0)
+  napMinutes += asArray(extraNapSegments).reduce((sum, seg) => sum + segmentMinutes(seg), 0)
+
+  // A rolling 24h upload can span two nights; keep only the most recent night —
+  // segments starting within NIGHT_WINDOW_MS before the latest night-time wake.
+  const nightCandidates = parsed.filter((p) => !p.napHour)
+  const nightEnds = nightCandidates.map((p) => p.endMs).filter((n) => Number.isFinite(n))
+  const cutoff = nightEnds.length ? Math.max(...nightEnds) - NIGHT_WINDOW_MS : -Infinity
+  const night = nightCandidates.filter((p) => !Number.isFinite(p.startMs) || p.startMs >= cutoff)
+
   let deep = 0
   let rem = 0
   let core = 0
   let inbed = 0
   let awake = 0
   let awakenings = 0
-  let napMinutes = 0
   const asleepStarts: number[] = []
   const asleepEnds: number[] = []
-
-  for (const seg of all) {
-    const minutes = segmentMinutes(seg)
-    const cls = classifyStage(typeof seg.stage === 'string' ? seg.stage : '')
-    const asleepStage = cls === 'deep' || cls === 'rem' || cls === 'core'
-
-    // Daytime naps are separated out so night-sleep totals stay clean.
-    if (isNapSegment(seg)) {
-      if (asleepStage) napMinutes += minutes
-      continue
-    }
-
-    if (cls === 'deep') deep += minutes
-    else if (cls === 'rem') rem += minutes
-    else if (cls === 'core') core += minutes
-    else if (cls === 'inbed') inbed += minutes
-    else if (cls === 'awake') {
-      awake += minutes
+  for (const p of night) {
+    if (p.cls === 'deep') deep += p.minutes
+    else if (p.cls === 'rem') rem += p.minutes
+    else if (p.cls === 'core') core += p.minutes
+    else if (p.cls === 'inbed') inbed += p.minutes
+    else if (p.cls === 'awake') {
+      awake += p.minutes
       awakenings += 1
     }
-    if (asleepStage) {
-      const start = typeof seg.start === 'string' ? Date.parse(seg.start) : NaN
-      const end = typeof seg.end === 'string' ? Date.parse(seg.end) : NaN
-      if (Number.isFinite(start)) asleepStarts.push(start)
-      if (Number.isFinite(end)) asleepEnds.push(end)
+    if (p.asleep) {
+      if (Number.isFinite(p.startMs)) asleepStarts.push(p.startMs)
+      if (Number.isFinite(p.endMs)) asleepEnds.push(p.endMs)
     }
   }
 
-  // Any explicitly-provided nap segments (legacy shape) add to the daytime total.
-  napMinutes += asArray(extraNapSegments).reduce((sum, seg) => sum + segmentMinutes(seg), 0)
-
   const asleep = core + deep + rem
-  const hasNight = asleepStarts.length > 0 || inbed > 0 || awake > 0
+  const hasNight = night.length > 0
   const round = (n: number) => Math.round(n)
 
   return {
