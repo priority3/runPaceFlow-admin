@@ -96,11 +96,6 @@ export const POST = withHealthImportAuth(async (request) => {
   const payload = hasSegments
     ? {
         sleepSegments,
-        // TEMP diagnostic: keep the raw uploaded blob + reported sample count so we can
-        // see exactly what the shortcut produced when parsing yields nothing.
-        sleepSegmentsTextRaw:
-          typeof body.sleepSegmentsText === 'string' ? body.sleepSegmentsText.slice(0, 3000) : null,
-        sleepSampleCount: toNumberOrNull(body.sleepSampleCount),
         napSegments: Array.isArray(body.napSegments) ? body.napSegments : [],
         audio: { avgDb: audioAvgDb, maxDb: audioMaxDb },
         derived: derived
