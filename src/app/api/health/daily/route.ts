@@ -7,6 +7,23 @@ import { projectFriendProfile } from '@/lib/pr/memory'
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Parse a newline-delimited segments blob (`stage|startISO|endISO` per line) into
+ * segment objects. Reason: iOS Shortcuts builds a text blob far more reliably than a
+ * nested JSON array, so the collector uploads text and the server structures it.
+ */
+function parseSegmentsText(text: string): Array<{ stage: string; start: string; end: string }> {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [stage = '', start = '', end = ''] = line.split('|')
+      return { stage: stage.trim(), start: start.trim(), end: end.trim() }
+    })
+    .filter((s) => s.start && s.end)
+}
+
 /** Coerces an optional numeric field, tolerating string inputs from Shortcuts JSON. */
 function toNumberOrNull(value: unknown): number | null {
   if (value == null || value === '') return null
@@ -58,8 +75,13 @@ export const POST = withHealthImportAuth(async (request) => {
   // Two ingest shapes, both supported:
   // 1) Rich (new shortcut): raw sleepSegments/napSegments — server derives aggregates.
   // 2) Direct (legacy): sleepMinutes/deepSleepMinutes/... already computed by the caller.
-  const hasSegments = Array.isArray(body.sleepSegments)
-  const derived = hasSegments ? deriveSleep(body.sleepSegments, body.napSegments) : null
+  const sleepSegments = Array.isArray(body.sleepSegments)
+    ? body.sleepSegments
+    : typeof body.sleepSegmentsText === 'string'
+      ? parseSegmentsText(body.sleepSegmentsText)
+      : null
+  const hasSegments = Array.isArray(sleepSegments)
+  const derived = hasSegments ? deriveSleep(sleepSegments, body.napSegments) : null
 
   const audioAvgDb = toNumberOrNull(body.audioAvgDb ?? body.envAudioDb ?? body.environmentalAudioDb)
   const audioMaxDb = toNumberOrNull(body.audioMaxDb)
@@ -68,7 +90,7 @@ export const POST = withHealthImportAuth(async (request) => {
   // converse over (bedtime, wake, awakenings, per-segment timeline, naps, audio peak).
   const payload = hasSegments
     ? {
-        sleepSegments: body.sleepSegments,
+        sleepSegments,
         napSegments: Array.isArray(body.napSegments) ? body.napSegments : [],
         audio: { avgDb: audioAvgDb, maxDb: audioMaxDb },
         derived: derived
