@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
 
-import { withAuth } from '@/lib/api-helpers'
+import { withAuthParams } from '@/lib/api-helpers'
 import { getAgentRunDetail } from '@/lib/pr/state'
 
 export const dynamic = 'force-dynamic'
 
-export const GET = withAuth(async (_request, context?: { params?: Promise<{ id: string }> }) => {
-  const params = await context?.params
-  const id = params?.id
+export const GET = withAuthParams<{ id: string }>(async (_request, { params }) => {
+  const { id } = await params
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
   const detail = await getAgentRunDetail(id)

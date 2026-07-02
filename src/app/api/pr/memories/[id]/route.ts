@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
 
-import { withAuth } from '@/lib/api-helpers'
+import { withAuthParams } from '@/lib/api-helpers'
 import { updateMemory, type MemoryItemType } from '@/lib/pr/memory'
 
 export const dynamic = 'force-dynamic'
 
-export const PATCH = withAuth(async (request, context?: { params?: Promise<{ id: string }> }) => {
-  const params = await context?.params
-  const id = params?.id
+export const PATCH = withAuthParams<{ id: string }>(async (request, { params }) => {
+  const { id } = await params
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
   let body: Record<string, unknown>

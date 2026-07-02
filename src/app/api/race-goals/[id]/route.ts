@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server'
 
-import { withAuth } from '@/lib/api-helpers'
+import { withAuthParams } from '@/lib/api-helpers'
 import { deleteRaceGoal, updateRaceGoal } from '@/lib/pr/race-goals'
 import { projectFriendProfile } from '@/lib/pr/memory'
 
 export const dynamic = 'force-dynamic'
 
-export const PATCH = withAuth(async (request, context?: { params?: Promise<{ id: string }> }) => {
-  const params = await context?.params
-  const id = params?.id
+export const PATCH = withAuthParams<{ id: string }>(async (request, { params }) => {
+  const { id } = await params
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
   let body: Record<string, unknown>
@@ -41,9 +40,8 @@ export const PATCH = withAuth(async (request, context?: { params?: Promise<{ id:
   return NextResponse.json({ goalId: id })
 })
 
-export const DELETE = withAuth(async (_request, context?: { params?: Promise<{ id: string }> }) => {
-  const params = await context?.params
-  const id = params?.id
+export const DELETE = withAuthParams<{ id: string }>(async (_request, { params }) => {
+  const { id } = await params
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
   await deleteRaceGoal(id)

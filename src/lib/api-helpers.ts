@@ -92,6 +92,40 @@ export function withHealthImportAuth<TContext = unknown>(
 }
 
 /**
+ * Auth wrapper for DYNAMIC route segments (e.g. `[id]`, `[runId]`).
+ *
+ * Reason: Next.js's build-time route validator requires a dynamic handler's second
+ * argument to be exactly `{ params: Promise<P> }` (required, non-optional). The generic
+ * `withAuth` exposes an optional `context?` param, which the validator rejects with
+ * "invalid GET export ... Expected RouteContext". This variant types the context
+ * precisely so `next build` accepts it, while keeping the same auth + error handling.
+ */
+export function withAuthParams<P>(
+  handler: (
+    request: Request,
+    context: { params: Promise<P> },
+  ) => Promise<Response | NextResponse>,
+) {
+  return async (
+    request: Request,
+    context: { params: Promise<P> },
+  ): Promise<Response | NextResponse> => {
+    try {
+      await requireAuth()
+      return await handler(request, context)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Unauthorized') {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Internal error' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
  * Validates required fields in request body. Returns error response if invalid.
  */
 export function validateBody(body: Record<string, unknown>, required: string[]): NextResponse | null {
