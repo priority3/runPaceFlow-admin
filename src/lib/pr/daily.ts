@@ -109,7 +109,9 @@ export async function generateDailyReview(options: {
         { maxTokens: 700 },
       )
       const trimmed = generated.content.trim()
-      if (trimmed.length >= 40) {
+      // Low floor on purpose: a genuine companion reply can be a single short line
+      // ("睡够了，今天可以放开跑"). Only reject near-empty output to the rule fallback.
+      if (trimmed.length >= 12) {
         content = trimmed
         model = generated.model
         provider = generated.provider

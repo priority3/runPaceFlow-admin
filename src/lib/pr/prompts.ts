@@ -1,7 +1,7 @@
 import type { DailyContext, PrContext } from './context'
 
 export const PR_REVIEW_PROMPT_VERSION = 'pr-activity-review-v1'
-export const PR_DAILY_PROMPT_VERSION = 'pr-daily-review-v2'
+export const PR_DAILY_PROMPT_VERSION = 'pr-daily-review-v3'
 
 function formatPace(pace: number | null) {
   if (!pace || pace <= 0) return '-'
@@ -207,23 +207,25 @@ ${momentText} ${heartRateText}${summary.weatherDescription ? `，天气是 ${sum
 // ─── 每日恢复反思(健康驱动) ──────────────────────────────────────────────
 
 export function buildDailyReviewSystemPrompt() {
-  return `你是 RunPaceFlow 里的跑友型伙伴 PR。用户刚睡醒，你在给他写一段简短的「晨间状态」反思。
+  return `你是 PR，用户的跑步搭子、挺懂他的一个朋友。用户刚睡醒，你看了他的身体数据，像发微信一样随口跟他说句话。
 
-时间语义（重要，别搞反）：
-- 睡眠 / 深睡 / REM / 静息心率 / HRV：是「昨晚」这一觉的数据。
-- 步数 / 环境音量：是「过去一天」（醒来前约 24 小时）的活动，基本等于昨天——不要说成“今天走了多少步”。
-- 你的建议面向「今天」：用户接下来这一天该怎么安排。
+你不是在写晨间报告，是在跟朋友搭话。记住：
+- 只挑今天最值得说的那一点说——睡得特别好或特别差、HRV 掉了、连着熬夜、步数反常、离比赛没几天了……数据是你观察的依据，不是要念给他听的清单。没什么特别的，就轻描淡写一句。
+- 像真人发消息：短、口语、自然。经常就一两句话。可以是一句关心、一个观察、一句调侃、或者一个问句——不一定每次都要给建议。
+- 别套路化：开头别老是“早上好”，结尾别老是“加油”“跟着身体节奏来”。每天说法都可以不一样。
+- 数字能不报就不报；真要提就顺口带一个，绝对不要列“静息心率 X、HRV Y、环境 Z 分贝”这种清单。
+- 别硬凑三段式（昨晚怎样→昨天怎样→今天建议）。想到哪说到哪，像人一样。
 
-风格：
-- 中文，像懂用户的跑友，简短自然（120–260 字），不要写成体检报告。
-- 先落到昨晚恢复 + 过去一天的活动，再给一句克制的、针对今天的建议。
-- 可以自然引用长期记忆和伙伴画像，像老朋友随口提起，不要罗列字段。
+时间语义（你心里清楚就行，别当成输出结构）：
+- 睡眠 / 深睡 / REM / 静息心率 / HRV = 昨晚这一觉。
+- 步数 / 环境音量 = 醒来前约一天（≈昨天）的活动，别说成“今天走了多少步”。
+- 你要聊的是“今天”——他今天什么状态、怎么安排。
 
-严格要求：
-- 只能基于输入的 facts/context 说话，不要编造睡眠、HRV、步数、偏好、伤病或目标。
-- 只有「长期记忆」「伙伴画像」里出现的内容才能表达为了解用户；不要把偶发状态说成固定性格。
-- 如果存在“不要默认/纠正”内容，必须避开对应判断。
-- 不做医学诊断；不在结尾追问用户补数据。`
+底线：
+- 只依据给你的数据和记忆说话，别编睡眠、HRV、步数、偏好、伤病或目标。
+- 只有「长期记忆」「伙伴画像」里有的，才能表现得像了解他；偶发状态别说成固定性格。
+- 有“不要默认/纠正”的内容，避开。
+- 不做医学诊断；不在结尾追问他补数据。`
 }
 
 function formatMinutes(min: number | null | undefined) {
@@ -235,21 +237,18 @@ function formatMinutes(min: number | null | undefined) {
 
 export function buildDailyReviewUserPrompt(context: DailyContext) {
   const h = context.todayHealth
+  // 内部参考,单行铺开——刻意不分「昨晚/昨天」小标题,免得模型照抄成三段式汇报。
   const health = h
     ? [
-        `### 昨晚（这一觉）`,
-        `- 睡眠：${formatMinutes(h.sleepMinutes)}（深睡 ${formatMinutes(h.deepSleepMinutes)}、REM ${formatMinutes(h.remSleepMinutes)}）`,
-        `- 静息心率：${h.restingHr ?? '-'}　HRV：${h.hrv ?? '-'}`,
-        `- 恢复标签：${h.recoveryLabel}`,
-        `### 过去一天（≈昨天的活动）`,
-        `- 步数：${h.steps ?? '-'}　环境音量：${h.envAudioDb ?? '-'}dB`,
+        `- 昨晚：睡 ${formatMinutes(h.sleepMinutes)}（深睡 ${formatMinutes(h.deepSleepMinutes)}、REM ${formatMinutes(h.remSleepMinutes)}），静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}，恢复 ${h.recoveryLabel}`,
+        `- 过去一天（≈昨天）：步数 ${h.steps ?? '-'}、环境音量 ${h.envAudioDb ?? '-'}dB`,
       ].join('\n')
     : '- 暂无恢复数据'
 
   const trend = context.recentHealth
     .slice(0, 7)
-    .map(item => `${item.date}: 睡 ${formatMinutes(item.sleepMinutes)}/恢复 ${item.recoveryLabel}`)
-    .join('；') || '暂无'
+    .map(item => `${item.date} 睡${formatMinutes(item.sleepMinutes)}/${item.recoveryLabel}`)
+    .join('，') || '暂无'
 
   const memories = context.memoryItems
     .map(memory => `- [${memory.type}] ${memory.content}`)
@@ -260,13 +259,13 @@ export function buildDailyReviewUserPrompt(context: DailyContext) {
     .map(goal => `- ${goal.name}（还有 ${goal.daysUntilRace} 天）`)
     .join('\n') || '- 暂无 active 比赛目标'
 
-  return `# 数据快照（${h?.date ?? '未知日期'} 清晨，用户刚醒）
+  return `以下是你看到的信息（内部参考，别照着念，也别全用上）：
+
+## 身体数据（${h?.date ?? '未知日期'} 清晨）
 ${health}
+近 7 天：${trend}
 
-## 近 7 天趋势
-${trend}
-
-## 可引用的长期记忆
+## 你记得关于他的（长期记忆）
 ${memories}
 
 ## 伙伴画像
@@ -279,7 +278,7 @@ ${memories}
 ## 比赛目标
 ${goals}
 
-请据此写一段面向今天的「晨间状态」反思。`
+用户刚醒。跟数据比一比近 7 天，挑一件真正值得说的，像朋友一样发条微信给他。没什么特别的，就轻轻一句带过。`
 }
 
 export function buildRuleBasedDailyReview(context: DailyContext) {
@@ -287,20 +286,17 @@ export function buildRuleBasedDailyReview(context: DailyContext) {
   if (!h) {
     return '今天还没读到你的恢复数据。等手表把睡眠、心率同步上来，我再帮你看看状态；先按平时的节奏来，别硬撑。'
   }
-  const recoveryText =
-    h.recoveryLabel === 'good'
-      ? '恢复看着不错'
-      : h.recoveryLabel === 'okay'
-        ? '恢复一般'
-        : h.recoveryLabel === 'poor'
-          ? '恢复偏弱'
-          : '恢复情况不太确定'
-  const sleepText = h.sleepMinutes != null ? `昨晚睡了 ${formatMinutes(h.sleepMinutes)}（深睡 ${formatMinutes(h.deepSleepMinutes)}、REM ${formatMinutes(h.remSleepMinutes)}）` : '昨晚睡眠没记录到'
-  const hrText = h.restingHr != null || h.hrv != null ? `，静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}` : ''
-  const stepsText = h.steps != null ? `；过去一天走了 ${h.steps} 步` : ''
-  const advice =
-    h.recoveryLabel === 'poor'
-      ? '今天优先轻松跑或干脆休息，把连续性守住比冲强度更重要。'
-      : '状态还行的话，可以按计划来；要是感觉累，就把目标从“提速”换成“稳定完成”。'
-  return `${sleepText}${hrText}${stepsText}，${recoveryText}。${advice}`
+  // 兜底文案（AI 挂了才用）：只落到最能说明问题的睡眠/恢复，短一句，不堆指标。
+  if (h.recoveryLabel === 'poor') {
+    return h.sleepMinutes != null && h.sleepMinutes < 360
+      ? '昨晚没睡够，今天悠着点——想跑就轻松跑，或者干脆歇一天，连续性比强度重要。'
+      : '看着恢复没太跟上，今天别硬怼强度，轻松点。'
+  }
+  if (h.recoveryLabel === 'good') {
+    return '昨晚睡得挺足，今天状态应该不错，想拉一组有质量的也扛得住。'
+  }
+  if (h.recoveryLabel === 'okay') {
+    return '状态一般般，不算差。今天按计划来就行，累了就把目标换成稳稳跑完。'
+  }
+  return '今早数据不太全，先按感觉来，别勉强。'
 }
