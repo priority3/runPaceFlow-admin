@@ -16,7 +16,7 @@ export const POST = withAuth(async (request) => {
   const invalid = validateBody(body, ['targetType', 'targetId', 'eventType'])
   if (invalid) return invalid
 
-  const eventId = await recordPrFeedbackEvent({
+  const result = await recordPrFeedbackEvent({
     targetType: String(body.targetType),
     targetId: String(body.targetId),
     eventType: String(body.eventType) as PrFeedbackEventType,
@@ -27,5 +27,5 @@ export const POST = withAuth(async (request) => {
       : null,
   })
 
-  return NextResponse.json({ eventId })
+  return NextResponse.json(result)
 })

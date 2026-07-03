@@ -4,7 +4,7 @@ import { getActivitiesDb } from '@/lib/db/activities-client'
 import { agentRuns, conversationMessages, conversationThreads } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 
-import { listContextMemories } from './memory'
+import { applyMemoryPatch, extractMemoryPatchesFromText, listContextMemories } from './memory'
 import { retrieveKnowledge } from './rag'
 
 function serialize(value: unknown) {
@@ -48,13 +48,30 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     startedAt: now,
   })
 
+  const userMessageId = generateId('msg')
   await db.insert(conversationMessages).values({
-    id: generateId('msg'),
+    id: userMessageId,
     threadId,
     runId,
     role: 'user',
     content: input.message,
   })
+
+  const memoryPatches = extractMemoryPatchesFromText({
+    source: 'conversation_message',
+    refId: userMessageId,
+    text: input.message,
+  })
+  const learnedMemoryIds: string[] = []
+  for (const [index, patch] of memoryPatches.entries()) {
+    learnedMemoryIds.push(
+      await applyMemoryPatch(patch, {
+        actor: 'user',
+        idempotencyKey: `chat:${userMessageId}:memory:${index}`,
+        runId,
+      }),
+    )
+  }
 
   const [memoryItems, knowledge, recentMessages] = await Promise.all([
     listContextMemories(6),
@@ -87,6 +104,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     memoryRefsJson: serialize(memoryItems.map(memory => memory.id)),
     contextJson: serialize({
       memoryItems,
+      learnedMemoryIds,
       knowledge,
       recentMessages: recentMessages.map(message => ({
         role: message.role,
@@ -107,7 +125,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     })
     .where(eq(agentRuns.id, runId))
 
-  return { threadId, runId, answer }
+  return { threadId, runId, answer, learnedMemoryIds }
 }
 
 export async function listConversationMessages(threadId: string, limit = 30) {

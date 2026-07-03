@@ -11,13 +11,13 @@ import { NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/api-helpers'
 import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
-import { manualSync, manualInsights, manualNotify, manualWeeklyReview, manualStravaEventDrain } from '@/lib/scheduler'
+import { manualSync, manualInsights, manualNotify, manualWeeklyReview, manualDailyReview, manualStravaEventDrain } from '@/lib/scheduler'
 import { generateAnalyticsDigest, sendPushPlus } from '@/lib/notify'
 import { cleanupOldData } from '@/lib/retention'
 
 export const dynamic = 'force-dynamic'
 
-const VALID_ACTIONS = ['sync', 'insights', 'notify', 'notification-dispatch', 'weekly-review', 'strava-event-drain', 'analytics-digest', 'retention-cleanup'] as const
+const VALID_ACTIONS = ['sync', 'insights', 'notify', 'notification-dispatch', 'weekly-review', 'daily-review', 'strava-event-drain', 'analytics-digest', 'retention-cleanup'] as const
 
 export const POST = withAuth(async (request) => {
   let body: { action?: string }
@@ -57,6 +57,9 @@ export const POST = withAuth(async (request) => {
     }
     case 'weekly-review':
       result = await manualWeeklyReview()
+      break
+    case 'daily-review':
+      result = await manualDailyReview()
       break
     case 'strava-event-drain':
       result = await manualStravaEventDrain()

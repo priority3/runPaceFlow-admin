@@ -2,6 +2,8 @@ import { getActivitiesDb } from '@/lib/db/activities-client'
 import { prFeedbackEvents, prMetricEvents } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 
+import { applyMemoryPatch, extractMemoryPatchesFromText } from './memory'
+
 export type PrFeedbackEventType =
   | 'thumbs_up'
   | 'thumbs_down'
@@ -31,7 +33,24 @@ export async function recordPrFeedbackEvent(input: {
     note: input.note ?? null,
     metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
   })
-  return id
+
+  const memoryText = [input.note, input.value].filter(Boolean).join('\n')
+  const memoryPatches = extractMemoryPatchesFromText({
+    source: 'pr_feedback_event',
+    refId: id,
+    text: memoryText,
+  })
+  const memoryIds: string[] = []
+  for (const [index, patch] of memoryPatches.entries()) {
+    memoryIds.push(
+      await applyMemoryPatch(patch, {
+        actor: 'user',
+        idempotencyKey: `pr-feedback:${id}:memory:${index}`,
+      }),
+    )
+  }
+
+  return { eventId: id, memoryIds }
 }
 
 export async function recordPrMetricEvent(input: {

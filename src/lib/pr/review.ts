@@ -15,6 +15,8 @@ import { generateId } from '@/lib/utils'
 
 import { buildPrContext, PR_CONTEXT_BUILDER_VERSION, type PrContext } from './context'
 import { evaluateActivityReview } from './evaluator'
+import { recordPrMetricEvent } from './feedback-loop'
+import { applyMemoryPatch, buildMemoryPatchesFromHabitSignals } from './memory'
 import {
   buildPrActivityReviewSystemPrompt,
   buildPrActivityReviewUserPrompt,
@@ -85,6 +87,9 @@ async function generateWithClaude(context: PrContext, settings: Record<string, s
   const client = new Anthropic({
     apiKey,
     ...(settings.ANTHROPIC_BASE_URL && { baseURL: settings.ANTHROPIC_BASE_URL }),
+    // Reason: 配置的第三方网关要求 1M 上下文 beta 头,否则 /v1/messages 报"请启用 1m 上下文",
+    // 导致 AI 复盘静默回退规则模板。官方 SDK 默认不带,这里显式补上。
+    defaultHeaders: { 'anthropic-beta': 'context-1m-2025-08-07' },
   })
   const response = await client.messages.create({
     model,
@@ -278,6 +283,17 @@ export async function generatePrReviewForActivity(
       activity: context.activity.summary,
       recentTraining: context.recentTraining,
       moments: context.activity.moments,
+      companionProfile: {
+        activeGoals: context.companionProfile.activeGoals,
+        trainingPreferences: context.companionProfile.trainingPreferences,
+        doNotAssume: context.companionProfile.doNotAssume,
+        projectionVersion: context.companionProfile.projectionVersion,
+      },
+      trainingHabitSignals: context.trainingHabitSignals.map(signal => ({
+        type: signal.type,
+        label: signal.label,
+        confidence: signal.confidence,
+      })),
       discardedContext: context.discardedContext,
     },
     inputHash,
@@ -304,6 +320,27 @@ export async function generatePrReviewForActivity(
       provider: generated.provider,
       model: generated.model,
       contentLength: generated.content.length,
+    })
+
+    const memoryPatches = buildMemoryPatchesFromHabitSignals({
+      runId,
+      activityId,
+      signals: context.trainingHabitSignals,
+    })
+    const memoryIds: string[] = []
+    for (const [index, patch] of memoryPatches.entries()) {
+      memoryIds.push(
+        await applyMemoryPatch(patch, {
+          actor: 'agent',
+          idempotencyKey: `review:${runId}:habit-memory:${index}`,
+          runId,
+        }),
+      )
+    }
+    await writeSnapshot(runId, 'update_memory', {
+      candidatePatches: memoryPatches.length,
+      memoryIds,
+      signalTypes: context.trainingHabitSignals.map(signal => signal.type),
     })
 
     const reviewId = generateId('review')
@@ -363,6 +400,20 @@ export async function generatePrReviewForActivity(
         })
         .onConflictDoNothing()
     }
+
+    await recordPrMetricEvent({
+      runId,
+      metricName: 'pr_review_quality_warnings',
+      metricValue: evaluation.warnings.length,
+      dimensions: {
+        provider: generated.provider,
+        model: generated.model,
+        fallbackUsed: !evaluation.passed,
+        warningTypes: evaluation.warnings,
+        habitSignalCount: context.trainingHabitSignals.length,
+        memoryPatchCount: memoryPatches.length,
+      },
+    })
 
     await db
       .update(agentRuns)

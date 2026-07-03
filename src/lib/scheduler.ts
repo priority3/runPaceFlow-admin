@@ -11,6 +11,7 @@ import { generateInsightsForUncached } from './ai'
 import { dispatchPendingNotifications } from './notifications/dispatcher'
 import { generateDailyReport, sendPushPlus } from './notify'
 import { generatePrReviewsForActivities } from './pr/review'
+import { generateDailyReview } from './pr/daily'
 import { generateWeeklyReview } from './pr/weekly'
 import { cleanupOldData } from './retention'
 import { ensureDefaultJobs, listJobs, recordJobRun } from './scheduler-config'
@@ -173,6 +174,22 @@ async function jobWeeklyReview() {
   }
 }
 
+async function jobPrDailyReview() {
+  console.log('[Scheduler] Running PR daily reflection job...')
+  const startTime = Date.now()
+  try {
+    const result = await generateDailyReview({ enqueueNotification: true })
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun(
+      'pr_daily_review',
+      `${result.generated ? 'generated' : 'skipped'}: ${result.subjectId} in ${elapsed}s`,
+    )
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun('pr_daily_review', `error: ${(err as Error).message} (${elapsed}s)`)
+  }
+}
+
 // ─── Job: Retention Cleanup ─────────────────────────────────────────────────
 
 async function jobRetentionCleanup() {
@@ -241,6 +258,19 @@ export async function manualWeeklyReview(): Promise<{ success: boolean; message:
   }
 }
 
+export async function manualDailyReview(): Promise<{ success: boolean; message: string }> {
+  try {
+    const result = await generateDailyReview({ force: true, enqueueNotification: true })
+    await recordJobRun('pr_daily_review', `manual: ${result.generated ? 'generated' : 'skipped'} ${result.subjectId}`)
+    return {
+      success: true,
+      message: `Daily reflection ${result.generated ? 'generated' : 'skipped'} for ${result.subjectId} (${result.model ?? 'n/a'})`,
+    }
+  } catch (err) {
+    return { success: false, message: (err as Error).message }
+  }
+}
+
 export async function manualStravaEventDrain(): Promise<{ success: boolean; message: string }> {
   try {
     const result = await drainStravaEvents(10)
@@ -262,6 +292,7 @@ const JOB_HANDLERS: Record<string, () => Promise<void>> = {
   insights: jobGenerateInsights,
   notification_dispatch: jobNotificationDispatch,
   weekly_review: jobWeeklyReview,
+  pr_daily_review: jobPrDailyReview,
   daily_report: jobDailyReport,
   retention_cleanup: jobRetentionCleanup,
 }

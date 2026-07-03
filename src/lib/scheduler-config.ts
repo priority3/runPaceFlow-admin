@@ -22,6 +22,7 @@ const DEFAULT_JOBS: Array<{ id: string; name: string; cronExpression: string }> 
   { id: 'insights', name: 'AI 分析生成', cronExpression: '5 * * * *' },
   { id: 'notification_dispatch', name: 'PR 通知分发', cronExpression: '*/10 * * * *' },
   { id: 'weekly_review', name: 'PR 周总结', cronExpression: '0 20 * * 0' },
+  { id: 'pr_daily_review', name: 'PR 每日反思', cronExpression: '30 9 * * *' },
   { id: 'daily_report', name: '每日训练报告', cronExpression: '0 21 * * *' },
   { id: 'retention_cleanup', name: '数据保留清理', cronExpression: '0 3 * * 0' }, // Weekly on Sunday at 3am
 ]

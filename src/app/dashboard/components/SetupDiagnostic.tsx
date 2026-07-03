@@ -16,8 +16,8 @@ interface StepResult {
 
 const INITIAL_STEPS: StepResult[] = [
   { name: 'Admin API 可达', status: 'pending', message: '检测 Admin API 是否正常运行' },
-  { name: '前端连通性', status: 'pending', message: '检测 Admin → 前端网络连通' },
-  { name: 'NEXT_PUBLIC_ADMIN_URL', status: 'pending', message: '检测前端是否配置了 Admin URL' },
+  { name: '前端运行时配置', status: 'pending', message: '检测 Admin → 前端 runtime-config' },
+  { name: 'Admin URL 回源配置', status: 'pending', message: '检测前端运行时是否配置了 Admin URL' },
   { name: '发送测试信标', status: 'pending', message: '发送一条测试数据并验证接收' },
 ]
 
@@ -57,35 +57,49 @@ export function SetupDiagnostic() {
     try {
       const res = await fetch('/api/health/connectivity', { cache: 'no-store' })
       const data = await res.json()
-      if (data.allPassed) {
-        updateStep(1, { status: 'pass', message: `前端连通正常 (${data.connectivity.frontend_root.latencyMs}ms)` })
+      if (data.frontendReachable) {
+        updateStep(1, {
+          status: 'pass',
+          message: `前端 runtime-config 正常 (${data.connectivity.frontend_runtime_config?.latencyMs ?? data.connectivity.frontend_root?.latencyMs}ms)`,
+          details: [
+            `RUNPACEFLOW_FRONTEND_URL=${data.frontendUrl}`,
+            `runtime-config=${data.connectivity.frontend_runtime_config?.url ?? `${data.frontendUrl}/api/runtime-config`}`,
+          ].join('\n'),
+        })
       } else {
         const failures = Object.entries(data.connectivity)
           .filter(([, v]: [string, any]) => !v.ok)
-          .map(([k, v]: [string, any]) => `${k}: ${v.error || 'failed'}`)
+          .map(([k, v]: [string, any]) => `${k}: ${v.error || `HTTP ${v.status || 'failed'}`}`)
           .join('; ')
         updateStep(1, {
           status: 'fail',
-          message: `前端连通失败: ${failures}`,
-          details: `RUNPACEFLOW_FRONTEND_URL=${data.frontendUrl}`,
+          message: `前端运行时配置不可达: ${failures}`,
+          details: [
+            `RUNPACEFLOW_FRONTEND_URL=${data.frontendUrl}`,
+            `runtime-config=${data.connectivity.frontend_runtime_config?.url ?? `${data.frontendUrl}/api/runtime-config`}`,
+          ].join('\n'),
         })
       }
     } catch (e) {
       updateStep(1, { status: 'skip', message: `无法检测: ${e instanceof Error ? e.message : String(e)}` })
     }
 
-    // Step 3: Check NEXT_PUBLIC_ADMIN_URL config
+    // Step 3: Check frontend runtime Admin URL config
     updateStep(2, { status: 'running' })
     try {
       const res = await fetch('/api/health/connectivity', { cache: 'no-store' })
       const data = await res.json()
       if (data.adminUrlConfigured) {
-        updateStep(2, { status: 'pass', message: `已配置: ${data.adminUrl}` })
+        updateStep(2, {
+          status: 'pass',
+          message: `已配置: ${data.adminUrl}`,
+          details: '来源: 前端 /api/runtime-config 的 adminUrl',
+        })
       } else {
         updateStep(2, {
           status: 'fail',
-          message: '前端未配置 NEXT_PUBLIC_ADMIN_URL',
-          details: '在前端 .env 或 docker-compose 中设置 NEXT_PUBLIC_ADMIN_URL=https://your-admin-domain.com',
+          message: '前端 runtime-config 未返回 adminUrl',
+          details: '在前端配置 RUNPACEFLOW_ADMIN_URL，并确保 CONFIG_EXPORT_TOKEN 可从 Admin 拉取配置',
         })
       }
     } catch {
@@ -200,7 +214,8 @@ export function SetupDiagnostic() {
             <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 space-y-1">
               <p className="font-medium">修复建议：</p>
               <ul className="list-disc list-inside space-y-0.5">
-                <li>确保前端 <code>NEXT_PUBLIC_ADMIN_URL</code> 设置为 Admin 的公网地址</li>
+                <li>确保前端 <code>RUNPACEFLOW_ADMIN_URL</code> 指向 Admin 的公网地址</li>
+                <li>确保前端 <code>CONFIG_EXPORT_TOKEN</code> 能从 Admin 拉取运行时配置</li>
                 <li>确保 Admin 的 <code>RUNPACEFLOW_FRONTEND_URL</code> 设置为前端的 Docker 内部地址</li>
                 <li>检查 Docker 网络和防火墙配置</li>
                 <li>访问 <code>/api/health/connectivity</code> 查看详细连通性报告</li>
