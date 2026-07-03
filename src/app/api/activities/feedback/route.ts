@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { withAuth, validateBody } from '@/lib/api-helpers'
 import { createSubjectiveFeedback } from '@/lib/pr/feedback'
-import { applyMemoryPatch, extractMemoryPatchesFromFeedback } from '@/lib/pr/memory'
+import { applyMemoryPatch, curateMemoryFromFeedback } from '@/lib/pr/memory'
 import { generatePrReviewForActivity } from '@/lib/pr/review'
 
 export const dynamic = 'force-dynamic'
@@ -29,7 +29,7 @@ export const POST = withAuth(async (request) => {
     note,
     source: typeof body.source === 'string' ? body.source : 'dashboard',
   })
-  const memoryPatches = extractMemoryPatchesFromFeedback({
+  const memoryPatches = await curateMemoryFromFeedback({
     feedbackId,
     activityId: String(body.activityId),
     note,

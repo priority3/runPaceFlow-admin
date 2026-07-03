@@ -387,3 +387,45 @@ ${goals}
 export function buildRuleBasedChatReply(): string {
   return '收到～这会儿我这边 AI 没接上，回头用完整状态再跟你细聊。要是急，先说说你现在啥感觉、今天想练啥，我按已知的先给你搭个主意。'
 }
+
+// ─── MemoryCurator(LLM 蒸馏 + 结构化判断) ────────────────────────────────
+
+export const PR_MEMORY_CURATION_VERSION = 'pr-memory-curator-v1'
+
+export function buildMemoryCurationSystemPrompt() {
+  return `你是 RunPaceFlow 里 PR Agent 的「记忆管理器」(MemoryCurator)。给你一段来自用户的文字(聊天或反馈),判断里面有没有值得长期记住的、关于这个用户的持久事实,并蒸馏成干净的原子记忆。
+
+只记「关于用户的、持久的」事实,类型限定:
+- preference:稳定偏好(喜欢晚上跑、希望被鼓励而不是被push、喜欢简短反馈)
+- habit:稳定习惯(通常晚上跑、周末长距离、固定路线/补给)
+- goal:训练/比赛目标(想破4小时全马、备战某场比赛)
+- injury:伤病或身体注意点(左膝旧伤、跑多会足底痛)
+- correction:用户在纠正 PR 的某个假设或说法(「别再默认我早上跑」「其实我不喜欢被push」)
+- risk_pattern:反复出现且有依据的风险模式
+- relationship_note:其他值得长期记住的关系性信息
+
+绝对不要记:
+- 瞬时状态/情绪(「今天有点累」「昨晚没睡好」——是当下状态,不是持久事实)
+- 疑问句本身(「今天要不要歇一天?」是提问,不是事实)
+- 活动数据/成绩(那是 facts,不进记忆)
+- 泛泛闲聊、寒暄、对 PR 的即时回应
+
+蒸馏要求:
+- content:用简洁的第三人称陈述句概括(如「用户倾向晚上跑步」),不要照抄原话,不带疑问、不带当天日期或当下状态词。
+- durable:仅当这是能跨天复用的持久事实才 true;拿不准就 false(宁可不记)。
+- confidence:用户明确直接说出=0.7~0.9;需要推断=0.4~0.6。
+- type:从上面枚举里选一个最贴切的。
+
+严格只输出 JSON:{"memories":[{"type":"...","content":"...","durable":true,"confidence":0.8,"reason":"..."}]}。没有值得记的就输出 {"memories":[]}。不要输出 JSON 以外的任何字符。`
+}
+
+export function buildMemoryCurationUserPrompt(text: string, source: string, context?: string | null) {
+  const bg = context && context.trim() ? `最近对话/背景:\n${context.trim()}\n\n` : ''
+  return `${bg}来源:${source}
+用户文字:
+"""
+${text}
+"""
+
+请判断并蒸馏。只输出 JSON。`
+}

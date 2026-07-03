@@ -2,7 +2,7 @@ import { getActivitiesDb } from '@/lib/db/activities-client'
 import { prFeedbackEvents, prMetricEvents } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 
-import { applyMemoryPatch, extractMemoryPatchesFromText } from './memory'
+import { applyMemoryPatch, curateMemoryPatches } from './memory'
 
 export type PrFeedbackEventType =
   | 'thumbs_up'
@@ -35,7 +35,7 @@ export async function recordPrFeedbackEvent(input: {
   })
 
   const memoryText = [input.note, input.value].filter(Boolean).join('\n')
-  const memoryPatches = extractMemoryPatchesFromText({
+  const memoryPatches = await curateMemoryPatches({
     source: 'pr_feedback_event',
     refId: id,
     text: memoryText,

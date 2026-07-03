@@ -12,7 +12,7 @@ import { generateId } from '@/lib/utils'
 import { buildCompanionProfileContext } from './context'
 import { evaluateChatReply, type ChatEvalContext } from './evaluator'
 import { getLatestHealthDailyMetrics } from './health'
-import { applyMemoryPatch, extractMemoryPatchesFromText, listContextMemories } from './memory'
+import { applyMemoryPatch, curateMemoryPatches, listContextMemories } from './memory'
 import { callPrModel } from './model'
 import {
   buildChatSystemPrompt,
@@ -40,6 +40,42 @@ async function writeSnapshot(runId: string, step: string, state: unknown) {
     step,
     stateJson: serialize(state),
   })
+}
+
+/**
+ * MemoryCurator 后台任务:把本轮用户消息交给 LLM 蒸馏成候选记忆并落库。
+ * 独立于回复路径运行(见 chatWithPr 里的 void 调用),失败只记日志、不影响对话。
+ */
+async function curateChatMemoryInBackground(
+  runId: string,
+  userMessageId: string,
+  message: string,
+  history: Array<{ role: string; content: string }>,
+) {
+  const context = history.length
+    ? history.map(turn => `${turn.role === 'assistant' ? 'PR' : '用户'}：${turn.content}`).join('\n')
+    : null
+  const patches = await curateMemoryPatches({
+    source: 'conversation_message',
+    refId: userMessageId,
+    text: message,
+    context,
+  })
+  const learnedMemoryIds: string[] = []
+  for (const [index, patch] of patches.entries()) {
+    try {
+      learnedMemoryIds.push(
+        await applyMemoryPatch(patch, {
+          actor: 'user',
+          idempotencyKey: `chat:${userMessageId}:memory:${index}`,
+          runId,
+        }),
+      )
+    } catch (error) {
+      console.warn('[pr-chat] 记忆写入失败:', (error as Error).message)
+    }
+  }
+  await writeSnapshot(runId, 'curate_memory', { learnedMemoryIds, patchCount: patches.length })
 }
 
 /**
@@ -215,28 +251,6 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       await writeSnapshot(runId, 'draft_response', { fallback: true, error: (personaError as Error).message })
     }
 
-    // ── curate_memory (MemoryCurator, 在输出之后运行,避免为当前回复提前污染记忆) ──
-    const memoryPatches = extractMemoryPatchesFromText({
-      source: 'conversation_message',
-      refId: userMessageId,
-      text: input.message,
-    })
-    const learnedMemoryIds: string[] = []
-    for (const [index, patch] of memoryPatches.entries()) {
-      try {
-        learnedMemoryIds.push(
-          await applyMemoryPatch(patch, {
-            actor: 'user',
-            idempotencyKey: `chat:${userMessageId}:memory:${index}`,
-            runId,
-          }),
-        )
-      } catch (memoryError) {
-        console.warn('[pr-chat] 记忆写入失败:', (memoryError as Error).message)
-      }
-    }
-    await writeSnapshot(runId, 'curate_memory', { learnedMemoryIds, patchCount: memoryPatches.length })
-
     // ── persist_output (assistant message + context_json 可追溯) ──
     await db.insert(conversationMessages).values({
       id: generateId('msg'),
@@ -247,7 +261,6 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       memoryRefsJson: serialize(memoryItems.map(memory => memory.id)),
       contextJson: serialize({
         memoryItems,
-        learnedMemoryIds,
         knowledge,
         raceGoals: goalLines,
         evaluatorWarnings: warnings,
@@ -269,7 +282,14 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       })
       .where(eq(agentRuns.id, runId))
 
-    return { threadId, runId, answer, model, provider, warnings, learnedMemoryIds }
+    // ── curate_memory (MemoryCurator, LLM 蒸馏) ──
+    // 回复落库后作为后台任务跑:既满足"输出之后再固化记忆"(不污染当前回复),又不让
+    // 第二次模型调用拖慢用户拿到回复(微信/前端都不等它)。产出一律候选,晋升靠确认或多证据。
+    void curateChatMemoryInBackground(runId, userMessageId, input.message, history).catch(error =>
+      console.warn('[pr-chat] 后台记忆蒸馏失败:', (error as Error).message),
+    )
+
+    return { threadId, runId, answer, model, provider, warnings, learnedMemoryIds: [] }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.warn('[pr-chat] 编排失败:', message)

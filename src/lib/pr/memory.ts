@@ -4,8 +4,13 @@ import { getActivitiesDb } from '@/lib/db/activities-client'
 import { friendProfile, memoryEvents, memoryItems } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 import { getLatestHealthDailyMetrics } from './health'
+import { callPrModel } from './model'
+import { buildMemoryCurationSystemPrompt, buildMemoryCurationUserPrompt } from './prompts'
 import { getRaceGoalContext } from './race-goals'
 import type { TrainingHabitSignal } from './context'
+
+// 一条记忆晋升为 active 需要的独立证据条数(否则默认 candidate,只靠确认或多证据晋升)。
+const EVIDENCE_PROMOTION_THRESHOLD = 3
 
 export type MemoryItemType =
   | 'preference'
@@ -105,63 +110,91 @@ function rowToMemory(row: typeof memoryItems.$inferSelect): MemoryContext {
   }
 }
 
-function classifyFeedbackNote(note: string): MemoryItemType {
-  if (/(别再|不要|纠正|其实|不是|别把|别说|别默认)/.test(note)) return 'correction'
-  if (/(目标|比赛|破|PB|pb|马拉松|半马|全马|10k|5k)/.test(note)) return 'goal'
-  if (/(喜欢|偏好|希望|提醒|建议|语气|直接|温和|鼓励|调侃)/.test(note)) return 'preference'
-  if (/(通常|经常|习惯|一般|固定|早上|晚上|夜跑|晨跑|路线|补给)/.test(note)) return 'habit'
-  return 'relationship_note'
+/** 独立证据条数(按 source|refId|quote 去重),用于多证据晋升判定。 */
+function distinctEvidenceCount(evidence: MemoryEvidence[]) {
+  return new Set(evidence.map(item => [item.source, item.refId ?? '', item.quote ?? ''].join('|'))).size
 }
 
-export function extractMemoryPatchesFromText(input: {
+function clampConfidence(value: number) {
+  return Number.isFinite(value) ? Math.min(0.95, Math.max(0.1, value)) : 0.5
+}
+
+/** 从模型输出里稳健地取出 JSON(容忍 ```json 包裹或前后杂字)。 */
+function parseCurationJson(text: string): { memories?: unknown } {
+  const cleaned = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  const slice = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned
+  return JSON.parse(slice)
+}
+
+/**
+ * MemoryCurator(LLM 蒸馏 + 结构化判断)。把一段用户文字交给模型判断有没有值得长期
+ * 记住的、关于用户的持久事实,并蒸馏成干净的原子记忆候选(type/durable/confidence)。
+ *
+ * 替代原来的关键词正则:不再把瞬时状态/疑问句/原话直接落库(那是之前脏记忆的根因)。
+ * 失败或无产出时返回 [](不回退正则),记忆非实时,可后续再学。所有产出都是 create 候选,
+ * 是否晋升为 active 交给 applyMemoryPatch 的证据阈值或用户确认。
+ */
+export async function curateMemoryPatches(input: {
   source: string
   refId: string
   text?: string | null
+  context?: string | null
   createdAt?: string
-}): MemoryPatch[] {
+}): Promise<MemoryPatch[]> {
   const raw = input.text?.trim()
   if (!raw) return []
 
-  if (!/(喜欢|偏好|希望|以后|提醒|建议|语气|直接|温和|鼓励|调侃|别再|不要|纠正|其实|不是|别把|别说|别默认|通常|经常|习惯|一般|固定|早上|晚上|夜跑|晨跑|路线|补给|目标|比赛|PB|pb|马拉松|半马|全马|10k|5k)/.test(raw)) {
+  let parsed: { memories?: unknown }
+  try {
+    const generated = await callPrModel(
+      buildMemoryCurationSystemPrompt(),
+      buildMemoryCurationUserPrompt(raw, input.source, input.context),
+      { maxTokens: 500 },
+    )
+    parsed = parseCurationJson(generated.content)
+  } catch (error) {
+    console.warn('[memory-curator] LLM 蒸馏失败，跳过本次(不回退正则):', (error as Error).message)
     return []
   }
 
-  // One patch per note (single primary type) to avoid storing the same sentence as
-  // multiple candidates; cap content so a long/rambling message doesn't dump a
-  // paragraph into the memory store.
-  const content = raw.length > 140 ? `${raw.slice(0, 139)}…` : raw
-  const type = classifyFeedbackNote(raw)
-  return [{
-    action: 'create' as const,
-    type,
-    content,
-    evidence: [{
-      source: input.source,
-      refId: input.refId,
-      quote: content,
-      createdAt: input.createdAt ?? new Date().toISOString(),
-    }],
-    confidence: type === 'correction' ? 0.82 : 0.62,
-    reason: '用户明确表达了偏好、习惯、目标或纠正，作为可审核记忆进入长期学习队列。',
-  }]
+  const items = Array.isArray(parsed?.memories) ? (parsed.memories as Array<Record<string, unknown>>) : []
+  const createdAt = input.createdAt ?? new Date().toISOString()
+  const patches: MemoryPatch[] = []
+  for (const item of items.slice(0, 3)) {
+    const content = typeof item?.content === 'string' ? item.content.trim() : ''
+    // durable 必须显式为 true;拿不准的不记。
+    if (!content || item?.durable !== true) continue
+    const type = normalizeType(String(item?.type ?? 'relationship_note'))
+    patches.push({
+      action: 'create',
+      type,
+      content: content.length > 140 ? `${content.slice(0, 139)}…` : content,
+      evidence: [{ source: input.source, refId: input.refId, quote: raw.slice(0, 180), createdAt }],
+      confidence: clampConfidence(Number(item?.confidence)),
+      reason:
+        typeof item?.reason === 'string' && item.reason.trim()
+          ? item.reason.trim()
+          : 'MemoryCurator 蒸馏出的候选记忆，等待用户确认或多证据晋升。',
+    })
+  }
+  return patches
 }
 
-export function extractMemoryPatchesFromFeedback(input: {
+export async function curateMemoryFromFeedback(input: {
   feedbackId: string
   activityId: string
   note?: string | null
   pain?: unknown
-}) {
-  const patches: MemoryPatch[] = []
+}): Promise<MemoryPatch[]> {
   const createdAt = new Date().toISOString()
-  const note = input.note?.trim()
-
-  patches.push(...extractMemoryPatchesFromText({
+  const patches = await curateMemoryPatches({
     source: 'subjective_feedback',
     refId: input.feedbackId,
-    text: note,
+    text: input.note,
     createdAt,
-  }))
+  })
 
   if (input.pain) {
     patches.push({
@@ -170,7 +203,7 @@ export function extractMemoryPatchesFromFeedback(input: {
       content: `用户反馈本次活动存在不适: ${JSON.stringify(input.pain)}`,
       evidence: [{ source: 'subjective_feedback', refId: input.feedbackId, createdAt }],
       confidence: 0.45,
-      reason: '疼痛反馈属于敏感信息，只作为候选观察，不直接进入长期画像。',
+      reason: '疼痛反馈属于敏感信息，只作为候选观察，等待多证据或用户确认。',
     })
   }
 
@@ -226,13 +259,16 @@ export async function applyMemoryPatch(
 
     if (similar) {
       const nextVersion = similar.version + 1
-      const nextStatus =
-        similar.status === 'decayed'
-          ? 'candidate'
-          : patch.type === 'correction' && patch.confidence >= 0.8
-            ? 'active'
-            : similar.status
       const nextEvidence = mergeEvidence(parseEvidence(similar.evidenceJson), patch.evidence)
+      // 多证据晋升:已 active 保持 active;否则累计独立证据够阈值才晋升;decayed 遇新证据先回 candidate。
+      const nextStatus =
+        similar.status === 'active'
+          ? 'active'
+          : distinctEvidenceCount(nextEvidence) >= EVIDENCE_PROMOTION_THRESHOLD
+            ? 'active'
+            : similar.status === 'decayed'
+              ? 'candidate'
+              : similar.status
       const nextConfidence = Math.max(Number(similar.confidence ?? 0), patch.confidence)
       await db
         .update(memoryItems)
@@ -269,10 +305,9 @@ export async function applyMemoryPatch(
     await db.insert(memoryItems).values({
       id: memoryId,
       type: patch.type,
-      status:
-        (options.actor === 'user' || patch.confidence >= 0.8) && patch.type === 'correction'
-          ? 'active'
-          : 'candidate',
+      // 新记忆一律先落 candidate;只有自带足够独立证据(如多样本习惯信号)才直接 active。
+      // 单条聊天/反馈只有 1 条证据 → candidate,晋升靠用户确认或后续多证据累计。
+      status: distinctEvidenceCount(patch.evidence) >= EVIDENCE_PROMOTION_THRESHOLD ? 'active' : 'candidate',
       content: patch.content,
       evidenceJson: JSON.stringify(patch.evidence),
       confidence: patch.confidence,
@@ -475,7 +510,19 @@ export async function getFriendProfile() {
 export async function projectFriendProfile() {
   const active = await listMemories(['active'], 100)
   const injuryWatchlist = active.filter(memory => memory.type === 'injury')
-  const doNotAssume = active.filter(memory => memory.type === 'correction')
+  // 例外(doc:correction 永远进入上下文,防止重复犯错):纠错类记忆在 candidate 阶段也投影进
+  // doNotAssume,不必等晋升 active。其余类型仍只取 active。经 LLM MemoryCurator 把关,
+  // 不再会有"要不要"这类子串误判的假纠错混入。
+  const candidateCorrections = (await listMemories(['candidate'], 200)).filter(
+    memory => memory.type === 'correction',
+  )
+  const doNotAssumeContents = Array.from(
+    new Set(
+      [...active.filter(memory => memory.type === 'correction'), ...candidateCorrections].map(
+        memory => memory.content,
+      ),
+    ),
+  )
   const preferences = active.filter(memory => memory.type === 'preference' || memory.type === 'relationship_note')
   const goals = active.filter(memory => memory.type === 'goal')
   const habits = active.filter(memory => memory.type === 'habit' || memory.type === 'risk_pattern')
@@ -499,7 +546,7 @@ export async function projectFriendProfile() {
       trainingPreferencesJson: JSON.stringify(habits.map(memory => memory.content)),
       injuryWatchlistJson: JSON.stringify(injuryWatchlist.map(memory => memory.content)),
       recentStateJson: JSON.stringify(recentState),
-      doNotAssumeJson: JSON.stringify(doNotAssume.map(memory => memory.content)),
+      doNotAssumeJson: JSON.stringify(doNotAssumeContents),
       projectionVersion: 1,
       updatedAt: new Date(),
     })
@@ -514,7 +561,7 @@ export async function projectFriendProfile() {
         trainingPreferencesJson: JSON.stringify(habits.map(memory => memory.content)),
         injuryWatchlistJson: JSON.stringify(injuryWatchlist.map(memory => memory.content)),
         recentStateJson: JSON.stringify(recentState),
-        doNotAssumeJson: JSON.stringify(doNotAssume.map(memory => memory.content)),
+        doNotAssumeJson: JSON.stringify(doNotAssumeContents),
         updatedAt: new Date(),
       },
     })
