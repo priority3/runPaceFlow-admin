@@ -281,6 +281,14 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     sensitive: true,
   },
   {
+    key: 'WECHAT_TEST_ACCOUNT_TOKEN',
+    label: '微信测试号消息 Token',
+    description: '测试号「接口配置信息」里的 Token，用于校验微信回调（PR 对话入口）。需与测试号后台填写的一致。回调 URL：<你的域名>/api/wechat/callback',
+    category: 'notification',
+    kind: 'password',
+    sensitive: true,
+  },
+  {
     key: 'NEXT_PUBLIC_APP_URL',
     label: '主应用地址',
     description: '部署后主应用访问地址，可用于脚本或未来集成。',

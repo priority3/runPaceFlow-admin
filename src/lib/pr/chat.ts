@@ -4,7 +4,14 @@ import { getActivitiesDb } from '@/lib/db/activities-client'
 import { agentRuns, conversationMessages, conversationThreads } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 
+import { getLatestHealthDailyMetrics } from './health'
 import { applyMemoryPatch, extractMemoryPatchesFromText, listContextMemories } from './memory'
+import { callPrModel } from './model'
+import {
+  buildChatSystemPrompt,
+  buildChatUserPrompt,
+  buildRuleBasedChatReply,
+} from './prompts'
 import { retrieveKnowledge } from './rag'
 
 function serialize(value: unknown) {
@@ -13,6 +20,23 @@ function serialize(value: unknown) {
 
 function titleFromMessage(message: string) {
   return message.trim().slice(0, 36) || 'PR 对话'
+}
+
+/**
+ * Latest thread updated within `withinMs` (default 24h), else null.
+ * Reason: WeChat has no per-message thread id; for this single-user companion we keep
+ * a rolling conversation so multi-turn context carries across messages, but start fresh
+ * after a long gap so an old topic doesn't bleed into a new one.
+ */
+export async function getRecentThreadId(withinMs = 24 * 60 * 60 * 1000): Promise<string | null> {
+  const db = await getActivitiesDb()
+  const [row] = await db
+    .select()
+    .from(conversationThreads)
+    .orderBy(desc(conversationThreads.lastMessageAt))
+    .limit(1)
+  if (!row?.lastMessageAt) return null
+  return Date.now() - row.lastMessageAt.getTime() <= withinMs ? row.id : null
 }
 
 export async function chatWithPr(input: { message: string; threadId?: string | null }) {
@@ -73,7 +97,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     )
   }
 
-  const [memoryItems, knowledge, recentMessages] = await Promise.all([
+  const [memoryItems, knowledge, recentMessages, recentHealth] = await Promise.all([
     listContextMemories(6),
     retrieveKnowledge(input.message, 3),
     db
@@ -82,18 +106,46 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       .where(eq(conversationMessages.threadId, threadId))
       .orderBy(desc(conversationMessages.createdAt))
       .limit(6),
+    getLatestHealthDailyMetrics(1).catch(() => []),
   ])
 
-  const answer = [
-    '我先按现在已有事实来答。',
-    memoryItems.length
-      ? `我会参考这些长期上下文：${memoryItems.slice(0, 3).map(memory => memory.content).join('；')}。`
-      : '目前可用的长期记忆还少，所以不会硬套偏好。',
-    knowledge.length
-      ? `训练知识库里有相关依据：${knowledge[0].content.slice(0, 160)}${knowledge[0].content.length > 160 ? '...' : ''}`
-      : '这次没有命中训练知识库，因此建议只按活动事实和保守训练原则来给。',
-    '如果这是训练安排问题，优先把恢复、最近负荷和目标日期放在第一位；如果身体有明确疼痛或异常，先降强度，不做医学判断。',
-  ].join('\n\n')
+  // 历史(不含刚插入的这条),按时间正序;新消息单独作为"刚发来"传给模型。
+  const history = recentMessages
+    .filter(message => message.id !== userMessageId)
+    .reverse()
+    .map(message => ({ role: message.role, content: message.content }))
+  const h = recentHealth[0]
+  const healthLine = h
+    ? `- ${h.date}：睡 ${h.sleepMinutes ?? '-'} 分、静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}、步数 ${h.steps ?? '-'}、恢复 ${h.recoveryLabel}`
+    : null
+
+  let answer: string
+  let model = 'rule-based-chat-v1'
+  let provider = 'local-rule'
+  try {
+    const generated = await callPrModel(
+      buildChatSystemPrompt(),
+      buildChatUserPrompt({
+        message: input.message,
+        recentMessages: history,
+        memories: memoryItems.map(memory => memory.content),
+        knowledge: knowledge.map(item => item.content.slice(0, 220)),
+        health: healthLine,
+      }),
+      { maxTokens: 500 },
+    )
+    const trimmed = generated.content.trim()
+    if (trimmed.length >= 2) {
+      answer = trimmed
+      model = generated.model
+      provider = generated.provider
+    } else {
+      answer = buildRuleBasedChatReply()
+    }
+  } catch (error) {
+    console.warn('[pr-chat] AI 生成失败，回退兜底:', (error as Error).message)
+    answer = buildRuleBasedChatReply()
+  }
 
   await db.insert(conversationMessages).values({
     id: generateId('msg'),
@@ -118,14 +170,14 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     .update(agentRuns)
     .set({
       status: 'succeeded',
-      model: 'rule-based-chat-v1',
+      model,
       lastStep: 'persist_output',
       completedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(agentRuns.id, runId))
 
-  return { threadId, runId, answer, learnedMemoryIds }
+  return { threadId, runId, answer, model, provider, learnedMemoryIds }
 }
 
 export async function listConversationMessages(threadId: string, limit = 30) {

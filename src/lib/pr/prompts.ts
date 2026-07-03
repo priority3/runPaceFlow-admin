@@ -300,3 +300,62 @@ export function buildRuleBasedDailyReview(context: DailyContext) {
   }
   return '今早数据不太全，先按感觉来，别勉强。'
 }
+
+// ─── PR 对话(多轮聊天,健康/记忆/知识驱动) ──────────────────────────────────
+
+export const PR_CHAT_PROMPT_VERSION = 'pr-chat-v2'
+
+export function buildChatSystemPrompt() {
+  return `你是 PR，用户的跑步搭子、挺懂他的一个朋友。他在微信上跟你聊天、问你东西，你像朋友一样回。
+
+怎么回：
+- 中文，口语、自然、简短，像发微信。别写小作文，别分点罗列（除非他明确要清单）。
+- 直接接他这句话；能一句说清就一句，别客套、别复述他的问题。
+- 只依据给你的「事实 / 长期记忆 / 训练知识 / 身体数据」说话；没依据就说不确定，别编睡眠、HRV、步数、偏好、伤病、目标或训练记录。
+- 训练/身体的问题：把恢复、最近负荷、目标日期放前面；有明确疼痛或异常，先降强度、必要时建议就医，不做医学诊断。
+- 只有「长期记忆」「伙伴画像」里有的，才表现得像了解他；偶发状态别当成固定性格。有“不要默认/纠正”的，避开。
+- 别每次都同一个开场白或口头禅。`
+}
+
+export function buildChatUserPrompt(input: {
+  message: string
+  recentMessages: Array<{ role: string; content: string }>
+  memories: string[]
+  knowledge: string[]
+  health?: string | null
+  raceGoals?: string[]
+}) {
+  const history = input.recentMessages.length
+    ? input.recentMessages
+        .map(m => `${m.role === 'assistant' ? 'PR' : '用户'}：${m.content}`)
+        .join('\n')
+    : '（无）'
+  const mem = input.memories.length ? input.memories.map(m => `- ${m}`).join('\n') : '- 暂无'
+  const know = input.knowledge.length ? input.knowledge.map(k => `- ${k}`).join('\n') : '- 无命中'
+  const goals = input.raceGoals && input.raceGoals.length
+    ? input.raceGoals.map(g => `- ${g}`).join('\n')
+    : '- 无'
+
+  return `# 近期对话
+${history}
+
+# 你记得关于他的（长期记忆）
+${mem}
+
+# 训练知识库命中
+${know}
+
+# 最近身体数据
+${input.health ?? '- 暂无'}
+
+# 比赛目标
+${goals}
+
+用户刚发来：「${input.message}」
+回他。`
+}
+
+/** AI 挂掉时的兜底回复（不能真回答,但别装作能答）。 */
+export function buildRuleBasedChatReply(): string {
+  return '收到～这会儿我这边 AI 没接上，回头用完整状态再跟你细聊。要是急，先说说你现在啥感觉、今天想练啥，我按已知的先给你搭个主意。'
+}
