@@ -3,24 +3,26 @@
 > 配套文档:`docs/pr-agent-technical-roadmap.md`(完整愿景)。本文件是**基于当前代码真实状态**的分阶段落地计划。
 > 目标:让 PR 成为一个**能持续学习用户习惯的亲密跑友**,而不是模板播报器。
 
-## 1. 现状盘点(2026-07 实测,非文档理论)
+## 1. 现状盘点(2026-07-03 实测更新)
 
 飞轮:`事实 → 解读 → 陪伴回应 → 反馈/纠正 → 记忆 → 画像 → 下次更好的上下文`。逐环状态:
 
 | 环节 | 状态 | 依据 / 文件 |
 |---|---|---|
 | 事实层 · 健康 | ✅ 通 | `health_daily_metrics` 每日入库(睡眠分段/深睡/REM/步数/环境音量/HRV/RHR),服务端夜间隔离+午睡拆分。`src/lib/pr/health.ts`、`health-derive.ts` |
-| 事实层 · 运动 | ❌ 断 | Strava 应用 **Inactive(403)**,`activities` 无新数据 |
-| 解读 · 活动复盘 | ⚠️ 有 AI 无数据 | `review.ts` 用 Claude(haiku)写复盘,但无活动 → 不触发 |
-| 陪伴 · 周总结/日记/聊天 | ❌ 规则模板 | `weekly.ts`/`chat.ts`/`diary` **均不调 AI**(`provider: local-rule`)→ PR "没有嘴" |
-| 上下文装配 | 🟡 有底子但只对活动 | `buildPrContext(activityId)` **要求活动**;已会装配 记忆/反馈/健康/RAG。`context.ts:49` |
-| 反馈 → 记忆 | 🟡 半通 | `extractMemoryPatchesFromFeedback` + `applyMemoryPatch` 已接 `POST /api/activities/feedback`;但**只在提交主观反馈时触发**,且无 UI、无活动 → `memory_items` = 0 |
-| 人在环 · 确认/纠正记忆 | ❌ 缺 UI | 路由已存在(`/api/pr/memories/:id/confirm|archive|PATCH`),但 **Dashboard 没有任何 PR/记忆/日记/健康面板** |
-| 画像投影 | ✅ 通(空源) | `projectFriendProfile()` 会刷新 `friend_profile`,但记忆为空 |
-| 投递 · 微信 | ✅ 通 | 客服文本消息优先、模板回退。`dispatcher.ts`、`wechat-test-account.ts` |
-| 调度 | 🟡 部分 | 已注册 `weekly_review`(周日20:00)、`notification_dispatch`(每10min)、`daily_report`(21:00,旧的分析日报,非 PR) |
+| 事实层 · 运动 | ❌ 断 | Strava 应用 **Inactive(403)**,`activities` 无新数据(阶段4:待重启) |
+| 解读 · 活动复盘 | ⚠️ 有 AI 无数据 | `review.ts` 用 Claude(haiku)写复盘,但无活动 → 不触发(等 Strava 恢复) |
+| 陪伴 · 每日反思 | ✅ AI 通 | `daily.ts` 事件驱动(健康上报即触发)用 haiku 写晨间反思,朋友口吻;规则兜底。`model.ts` 统一调用 |
+| 陪伴 · 周总结 | ✅ AI 通 | `weekly.ts` 用 `callPrModel` |
+| 陪伴 · 聊天 | ✅ AI 通(Agent 编排) | `chat.ts` = 多节点状态机(build_context→FriendPersona→Evaluator→MemoryCurator→persist),微信入口 `/api/wechat/callback` |
+| 上下文装配 | ✅ 通 | `buildDailyContext`(不依赖活动)+ `buildPrContext`(活动);统一走 `context.ts` |
+| 反馈/聊天 → 记忆 | ✅ 通(LLM) | `curateMemoryPatches`(LLM 蒸馏,判 durable/type/confidence)接聊天+反馈;候选默认不生效 |
+| 人在环 · 确认/纠正记忆 | ✅ 有 UI | Dashboard **「PR 伙伴」标签**:`MemoryPanel` 确认/纠正/编辑;`PrReviewsPanel`;`HealthRecoveryPanel` |
+| 画像投影 | ✅ 通 | `projectFriendProfile()`;correction 候选即进 `do_not_assume` |
+| 投递 · 微信 | ✅ 通 | 客服文本优先、模板回退;入站消息触发对话。`dispatcher.ts`、`wechat-test-account.ts` |
+| 调度 | ✅ 通 | 每日反思**事件驱动**(+中午12:00幂等兜底 `pr_daily_review`)、`weekly_review`(周日20:00)、`notification_dispatch`(每10min) |
 
-**结论:数据在流,但"会思考的嘴 + 会记的脑 + 能被你纠正的手"都没接上。** 学习环闭合度约 30%。
+**结论:学习环已闭合** —— 会思考的嘴(每日反思/周总结/对话都是 AI)、会记的脑(LLM MemoryCurator + candidate→确认/多证据→active)、能被你纠正的手(记忆面板)全部接上。**闭合度约 90%**,剩阶段4(运动数据/知识库/护栏扩展/可观测/共享编排)。
 
 ### 关键约束
 - **AI 只有 haiku 可用**:配置的代理 `a-ocnfniawgw...fcapp.run` 上 opus/sonnet 均 503,仅 `claude-haiku-4-5` 稳定。prompt 需精简。
@@ -34,7 +36,7 @@
 
 ## 3. 阶段落地
 
-### 阶段 1 —— 给 PR 一张嘴:AI 每日反思(健康驱动)+ 记忆种子
+### 阶段 1 —— 给 PR 一张嘴:AI 每日反思(健康驱动)+ 记忆种子 ✅ 已完成(2026-07-03,超额:事件驱动 + 朋友口吻)
 
 **目标**:每天基于健康数据,PR 用 haiku 写一段有跑友口吻的当日反思,经微信发出;并吐 0–3 条候选记忆。
 
@@ -49,7 +51,7 @@
 
 **影响文件**:`model.ts`(新)、`daily.ts`(新)、`context.ts`、`memory.ts`、`scheduler.ts`/`scheduler-config.ts`、`api/pr/daily-review/route.ts`(新)、`api/cron/route.ts`。
 
-### 阶段 2 —— 接上"脑"与"手":记忆面板 + 反馈入口(闭合学习环)
+### 阶段 2 —— 接上"脑"与"手":记忆面板 + 反馈入口(闭合学习环) ✅ 已完成(2026-07-03,「PR 伙伴」标签页)
 
 **目标**:你能看到 PR 的候选记忆并**确认/纠正**,纠正后 PR 不再犯同样的错。这是"学习"的关键闭环。
 
@@ -62,7 +64,7 @@
 
 **验收**:确认一条候选 → `friend_profile` 更新 → 次日反思能自然引用;纠正一条 → 写入 `do_not_assume` → 后续反思避开。
 
-### 阶段 3 —— 能对话的伙伴
+### 阶段 3 —— 能对话的伙伴 ✅ 已完成(2026-07-03,超额:Agent 状态机编排 + 微信入口)
 
 **要做**:`chat.ts` 换 AI(`callPrModel` + `buildDailyContext` + 会话摘要);`POST /api/pr/chat` 返回 AI 回复;`ChatPanel.tsx`。聊天中再抽记忆候选。
 **验收**:与 PR 对话,回复引用你的记忆/数据;新事实进入候选记忆。
@@ -73,10 +75,10 @@ RAG 训练知识(`rag.ts` + 导入脚本)、Evaluator 事实/语气/医学风险
 
 ## 4. 里程碑
 
-- **M1(阶段1)**:PR 每天用 AI 说话 + 开始记忆 → "活了"。
-- **M2(阶段2)**:你能教它、纠正它 → **学习环闭合**(核心目标达成)。
-- **M3(阶段3)**:能对话。
-- **M4(阶段4)**:有深度(知识/护栏/运动数据/可观测)。
+- **M1(阶段1)** ✅:PR 每天用 AI 说话 + 开始记忆 → "活了"。
+- **M2(阶段2)** ✅:你能教它、纠正它 → **学习环闭合**(核心目标达成)。
+- **M3(阶段3)** ✅:能对话(微信里直接聊)。
+- **M4(阶段4)** ⬜:有深度(知识/护栏/运动数据/可观测)。
 
 ## 5. 风险与对策
 
