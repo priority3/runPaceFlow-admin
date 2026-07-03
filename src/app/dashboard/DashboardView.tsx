@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import {
   Activity,
   BarChart3,
+  Brain,
   Clock,
   Footprints,
   Globe,
@@ -21,10 +22,11 @@ import { ActivitiesPanel } from './components/ActivitiesPanel'
 import { AnalyticsPanel } from './components/AnalyticsPanel'
 import { MonitorPanel } from './components/MonitorPanel'
 import { OverviewPanel } from './components/OverviewPanel'
+import { PrPanel } from './components/PrPanel'
 import { SchedulerPanel } from './components/SchedulerPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 
-type Tab = 'overview' | 'activities' | 'analytics' | 'scheduler' | 'monitor' | 'settings'
+type Tab = 'overview' | 'pr' | 'activities' | 'analytics' | 'scheduler' | 'monitor' | 'settings'
 
 export interface MonitorData {
   services: { name: string; status: string; responseTimeMs: number | null }[]
@@ -89,6 +91,7 @@ export function DashboardView({ settings }: DashboardViewProps) {
         <nav className="scrollbar-subtle min-[520px]:flex-1 min-[520px]:overflow-y-auto p-3 space-y-1">
           {([
             { id: 'overview' as Tab, icon: BarChart3, label: '概览' },
+            { id: 'pr' as Tab, icon: Brain, label: 'PR 伙伴' },
             { id: 'activities' as Tab, icon: Footprints, label: '运动数据' },
             { id: 'analytics' as Tab, icon: Globe, label: '访问分析' },
             { id: 'scheduler' as Tab, icon: Clock, label: '任务调度' },
@@ -140,6 +143,7 @@ export function DashboardView({ settings }: DashboardViewProps) {
           </div>
         )}
         {tab === 'overview' && <OverviewPanel stats={stats} syncStatus={syncStatus} monitor={monitor} loading={loadingStats} />}
+        {tab === 'pr' && <PrPanel />}
         {tab === 'activities' && <ActivitiesPanel stats={stats} loading={loadingStats} />}
         {tab === 'analytics' && <AnalyticsPanel />}
         {tab === 'scheduler' && <SchedulerPanel />}

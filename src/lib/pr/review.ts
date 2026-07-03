@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import OpenAI from 'openai'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
@@ -26,6 +26,8 @@ import {
 
 export interface PrReviewSummary {
   id: string
+  kind: string
+  subjectId: string
   activityId: string | null
   content: string
   model: string
@@ -33,6 +35,9 @@ export interface PrReviewSummary {
   inputHash: string
   createdAt: string
 }
+
+/** PR review 类型:活动复盘 / 每日晨间反思 / 周总结。 */
+export const PR_REVIEW_KINDS = ['pr_activity_review', 'pr_recovery_review', 'pr_weekly_review'] as const
 
 export interface GeneratePrReviewOptions {
   force?: boolean
@@ -56,6 +61,8 @@ function toIsoDate(value: Date | string | number) {
 function toReviewSummary(row: typeof activityReviews.$inferSelect): PrReviewSummary {
   return {
     id: row.id,
+    kind: row.kind,
+    subjectId: row.subjectId,
     activityId: row.activityId,
     content: row.content,
     model: row.model,
@@ -189,12 +196,15 @@ export async function getCurrentPrReview(activityId: string): Promise<PrReviewSu
   return rows[0] ? toReviewSummary(rows[0]) : null
 }
 
-export async function listCurrentPrReviews(limit = 20): Promise<PrReviewSummary[]> {
+export async function listCurrentPrReviews(
+  limit = 20,
+  kinds: readonly string[] = PR_REVIEW_KINDS,
+): Promise<PrReviewSummary[]> {
   const db = await getActivitiesDb()
   const rows = await db
     .select()
     .from(activityReviews)
-    .where(and(eq(activityReviews.kind, 'pr_activity_review'), eq(activityReviews.isCurrent, true)))
+    .where(and(inArray(activityReviews.kind, [...kinds]), eq(activityReviews.isCurrent, true)))
     .orderBy(desc(activityReviews.createdAt))
     .limit(limit)
 
