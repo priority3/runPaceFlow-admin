@@ -1,9 +1,16 @@
 import { desc, eq } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
-import { agentRuns, conversationMessages, conversationThreads } from '@/lib/db/activities-schema'
+import {
+  agentRuns,
+  agentStateSnapshots,
+  conversationMessages,
+  conversationThreads,
+} from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 
+import { buildCompanionProfileContext } from './context'
+import { evaluateChatReply, type ChatEvalContext } from './evaluator'
 import { getLatestHealthDailyMetrics } from './health'
 import { applyMemoryPatch, extractMemoryPatchesFromText, listContextMemories } from './memory'
 import { callPrModel } from './model'
@@ -12,7 +19,10 @@ import {
   buildChatUserPrompt,
   buildRuleBasedChatReply,
 } from './prompts'
+import { getRaceGoalContext } from './race-goals'
 import { retrieveKnowledge } from './rag'
+
+const PR_CHAT_BUILDER_VERSION = 'pr-chat-v2'
 
 function serialize(value: unknown) {
   return JSON.stringify(value)
@@ -20,6 +30,16 @@ function serialize(value: unknown) {
 
 function titleFromMessage(message: string) {
   return message.trim().slice(0, 36) || 'PR 对话'
+}
+
+async function writeSnapshot(runId: string, step: string, state: unknown) {
+  const db = await getActivitiesDb()
+  await db.insert(agentStateSnapshots).values({
+    id: generateId('snap'),
+    runId,
+    step,
+    stateJson: serialize(state),
+  })
 }
 
 /**
@@ -66,9 +86,9 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     subjectType: 'conversation',
     subjectId: threadId,
     status: 'running',
-    builderVersion: 'pr-chat-v1',
+    builderVersion: PR_CHAT_BUILDER_VERSION,
     attempts: 1,
-    lastStep: 'build_context',
+    lastStep: 'load_facts',
     startedAt: now,
   })
 
@@ -81,103 +101,188 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     content: input.message,
   })
 
-  const memoryPatches = extractMemoryPatchesFromText({
-    source: 'conversation_message',
-    refId: userMessageId,
-    text: input.message,
-  })
-  const learnedMemoryIds: string[] = []
-  for (const [index, patch] of memoryPatches.entries()) {
-    learnedMemoryIds.push(
-      await applyMemoryPatch(patch, {
-        actor: 'user',
-        idempotencyKey: `chat:${userMessageId}:memory:${index}`,
-        runId,
-      }),
-    )
-  }
-
-  const [memoryItems, knowledge, recentMessages, recentHealth] = await Promise.all([
-    listContextMemories(6),
-    retrieveKnowledge(input.message, 3),
-    db
-      .select()
-      .from(conversationMessages)
-      .where(eq(conversationMessages.threadId, threadId))
-      .orderBy(desc(conversationMessages.createdAt))
-      .limit(6),
-    getLatestHealthDailyMetrics(1).catch(() => []),
-  ])
-
-  // 历史(不含刚插入的这条),按时间正序;新消息单独作为"刚发来"传给模型。
-  const history = recentMessages
-    .filter(message => message.id !== userMessageId)
-    .reverse()
-    .map(message => ({ role: message.role, content: message.content }))
-  const h = recentHealth[0]
-  const healthLine = h
-    ? `- ${h.date}：睡 ${h.sleepMinutes ?? '-'} 分、静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}、步数 ${h.steps ?? '-'}、恢复 ${h.recoveryLabel}`
-    : null
-
-  let answer: string
-  let model = 'rule-based-chat-v1'
-  let provider = 'local-rule'
   try {
-    const generated = await callPrModel(
-      buildChatSystemPrompt(),
-      buildChatUserPrompt({
-        message: input.message,
-        recentMessages: history,
-        memories: memoryItems.map(memory => memory.content),
-        knowledge: knowledge.map(item => item.content.slice(0, 220)),
-        health: healthLine,
-      }),
-      { maxTokens: 500 },
-    )
-    const trimmed = generated.content.trim()
-    if (trimmed.length >= 2) {
-      answer = trimmed
-      model = generated.model
-      provider = generated.provider
-    } else {
-      answer = buildRuleBasedChatReply()
-    }
-  } catch (error) {
-    console.warn('[pr-chat] AI 生成失败，回退兜底:', (error as Error).message)
-    answer = buildRuleBasedChatReply()
-  }
+    // ── build_context (FactLoader + FeatureBuilder + MemoryRetriever + KnowledgeRetriever) ──
+    // 每个来源独立降级:RAG/记忆/健康/目标/画像任一失败都不该让对话挂掉。
+    const [memoryItems, knowledge, recentMessages, recentHealth, raceGoals, companionProfile] =
+      await Promise.all([
+        listContextMemories(6).catch(() => []),
+        retrieveKnowledge(input.message, 3).catch(() => []),
+        db
+          .select()
+          .from(conversationMessages)
+          .where(eq(conversationMessages.threadId, threadId))
+          .orderBy(desc(conversationMessages.createdAt))
+          .limit(6),
+        getLatestHealthDailyMetrics(1).catch(() => []),
+        getRaceGoalContext(3).catch(() => []),
+        buildCompanionProfileContext().catch(() => null),
+      ])
 
-  await db.insert(conversationMessages).values({
-    id: generateId('msg'),
-    threadId,
-    runId,
-    role: 'assistant',
-    content: answer,
-    memoryRefsJson: serialize(memoryItems.map(memory => memory.id)),
-    contextJson: serialize({
-      memoryItems,
-      learnedMemoryIds,
-      knowledge,
-      recentMessages: recentMessages.map(message => ({
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt.toISOString(),
-      })),
-    }),
-  })
+    // 历史(不含刚插入的这条),按时间正序;新消息单独作为"刚发来"传给模型。
+    const history = recentMessages
+      .filter(message => message.id !== userMessageId)
+      .reverse()
+      .map(message => ({ role: message.role, content: message.content }))
+    const h = recentHealth[0]
+    const healthLine = h
+      ? `- ${h.date}：睡 ${h.sleepMinutes ?? '-'} 分、静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}、步数 ${h.steps ?? '-'}、恢复 ${h.recoveryLabel}`
+      : null
+    const goalLines = raceGoals.map(goal => `${goal.name}（还有 ${goal.daysUntilRace} 天）`)
+    const profileBlock = companionProfile
+      ? {
+          displayName: companionProfile.displayName,
+          companionStyle: companionProfile.companionStyle,
+          trainingPreferences: companionProfile.trainingPreferences,
+          injuryWatchlist: companionProfile.injuryWatchlist,
+          doNotAssume: companionProfile.doNotAssume,
+        }
+      : undefined
 
-  await db
-    .update(agentRuns)
-    .set({
-      status: 'succeeded',
-      model,
-      lastStep: 'persist_output',
-      completedAt: new Date(),
-      updatedAt: new Date(),
+    await writeSnapshot(runId, 'build_context', {
+      memoryIds: memoryItems.map(memory => memory.id),
+      knowledgeCount: knowledge.length,
+      historyTurns: history.length,
+      hasHealth: Boolean(h),
+      raceGoals: goalLines,
+      profileVersion: companionProfile?.projectionVersion ?? null,
     })
-    .where(eq(agentRuns.id, runId))
 
-  return { threadId, runId, answer, model, provider, learnedMemoryIds }
+    // ── draft_response (FriendPersona) + evaluate_response (Evaluator, 最多重写一次) ──
+    const evalCtx: ChatEvalContext = {
+      hasHealth: Boolean(h),
+      hasMemoryOrHabit:
+        memoryItems.length > 0 || (companionProfile?.trainingPreferences.length ?? 0) > 0,
+      doNotAssume: companionProfile?.doNotAssume ?? [],
+    }
+    const persona = (constraints?: string[]) =>
+      callPrModel(
+        buildChatSystemPrompt(),
+        buildChatUserPrompt({
+          message: input.message,
+          recentMessages: history,
+          memories: memoryItems.map(memory => memory.content),
+          knowledge: knowledge.map(item => item.content.slice(0, 220)),
+          health: healthLine,
+          raceGoals: goalLines,
+          profile: profileBlock,
+          constraints,
+        }),
+        { maxTokens: 500 },
+      )
+
+    let answer = buildRuleBasedChatReply()
+    let model = 'rule-based-chat-v1'
+    let provider = 'local-rule'
+    let warnings: string[] = []
+    let attempts = 0
+
+    try {
+      const first = await persona()
+      attempts = 1
+      answer = first.content.trim() || buildRuleBasedChatReply()
+      model = first.model
+      provider = first.provider
+      const firstEval = evaluateChatReply(answer, evalCtx)
+      warnings = firstEval.warnings
+      await writeSnapshot(runId, 'draft_response', { attempt: 1, model, provider, length: answer.length })
+      await writeSnapshot(runId, 'evaluate_response', { attempt: 1, passed: firstEval.passed, warnings: firstEval.warnings })
+
+      if (!firstEval.passed) {
+        // Evaluator 不合格 → FriendPersona 带约束重写一次(doc: 最多重试一次)。
+        try {
+          const second = await persona(firstEval.warnings)
+          const rewritten = second.content.trim()
+          const secondEval = evaluateChatReply(rewritten, evalCtx)
+          attempts = 2
+          await writeSnapshot(runId, 'draft_response', { attempt: 2, model: second.model, length: rewritten.length })
+          await writeSnapshot(runId, 'evaluate_response', { attempt: 2, passed: secondEval.passed, warnings: secondEval.warnings })
+          if (rewritten) {
+            answer = rewritten
+            model = second.model
+            provider = second.provider
+            warnings = secondEval.warnings
+          }
+        } catch (rewriteError) {
+          console.warn('[pr-chat] 重写失败，沿用初版:', (rewriteError as Error).message)
+        }
+      }
+    } catch (personaError) {
+      console.warn('[pr-chat] FriendPersona 生成失败，回退兜底:', (personaError as Error).message)
+      answer = buildRuleBasedChatReply()
+      model = 'rule-based-chat-v1'
+      provider = 'local-rule'
+      await writeSnapshot(runId, 'draft_response', { fallback: true, error: (personaError as Error).message })
+    }
+
+    // ── curate_memory (MemoryCurator, 在输出之后运行,避免为当前回复提前污染记忆) ──
+    const memoryPatches = extractMemoryPatchesFromText({
+      source: 'conversation_message',
+      refId: userMessageId,
+      text: input.message,
+    })
+    const learnedMemoryIds: string[] = []
+    for (const [index, patch] of memoryPatches.entries()) {
+      try {
+        learnedMemoryIds.push(
+          await applyMemoryPatch(patch, {
+            actor: 'user',
+            idempotencyKey: `chat:${userMessageId}:memory:${index}`,
+            runId,
+          }),
+        )
+      } catch (memoryError) {
+        console.warn('[pr-chat] 记忆写入失败:', (memoryError as Error).message)
+      }
+    }
+    await writeSnapshot(runId, 'curate_memory', { learnedMemoryIds, patchCount: memoryPatches.length })
+
+    // ── persist_output (assistant message + context_json 可追溯) ──
+    await db.insert(conversationMessages).values({
+      id: generateId('msg'),
+      threadId,
+      runId,
+      role: 'assistant',
+      content: answer,
+      memoryRefsJson: serialize(memoryItems.map(memory => memory.id)),
+      contextJson: serialize({
+        memoryItems,
+        learnedMemoryIds,
+        knowledge,
+        raceGoals: goalLines,
+        evaluatorWarnings: warnings,
+        attempts,
+        model,
+        provider,
+      }),
+    })
+    await writeSnapshot(runId, 'persist_output', { model, provider, warnings, attempts })
+
+    await db
+      .update(agentRuns)
+      .set({
+        status: 'succeeded',
+        model,
+        lastStep: 'persist_output',
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(agentRuns.id, runId))
+
+    return { threadId, runId, answer, model, provider, warnings, learnedMemoryIds }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[pr-chat] 编排失败:', message)
+    await writeSnapshot(runId, 'failed', { error: message }).catch(() => {})
+    await db
+      .update(agentRuns)
+      .set({ status: 'failed', errorMessage: message, completedAt: new Date(), updatedAt: new Date() })
+      .where(eq(agentRuns.id, runId))
+      .catch(() => {})
+    // 对话必须有回复:即便编排出错,也返回兜底话,让微信/前端能给用户一个响应。
+    const answer = buildRuleBasedChatReply()
+    return { threadId, runId, answer, model: 'rule-based-chat-v1', provider: 'local-rule', warnings: ['orchestration_failed'], learnedMemoryIds: [] }
+  }
 }
 
 export async function listConversationMessages(threadId: string, limit = 30) {

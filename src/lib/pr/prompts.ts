@@ -317,6 +317,14 @@ export function buildChatSystemPrompt() {
 - 别每次都同一个开场白或口头禅。`
 }
 
+export interface ChatProfileBlock {
+  displayName?: string | null
+  companionStyle?: string[]
+  trainingPreferences?: string[]
+  injuryWatchlist?: string[]
+  doNotAssume?: string[]
+}
+
 export function buildChatUserPrompt(input: {
   message: string
   recentMessages: Array<{ role: string; content: string }>
@@ -324,6 +332,9 @@ export function buildChatUserPrompt(input: {
   knowledge: string[]
   health?: string | null
   raceGoals?: string[]
+  profile?: ChatProfileBlock
+  /** Evaluator 判定不合格后的重写约束(第二次生成时传入)。 */
+  constraints?: string[]
 }) {
   const history = input.recentMessages.length
     ? input.recentMessages
@@ -335,12 +346,29 @@ export function buildChatUserPrompt(input: {
   const goals = input.raceGoals && input.raceGoals.length
     ? input.raceGoals.map(g => `- ${g}`).join('\n')
     : '- 无'
+  const p = input.profile
+  const profileBlock = p
+    ? [
+        `- 称呼：${p.displayName ?? '-'}`,
+        `- 陪伴风格：${p.companionStyle?.join('；') || '-'}`,
+        `- 训练偏好/风险：${p.trainingPreferences?.join('；') || '-'}`,
+        `- 伤痛观察：${p.injuryWatchlist?.join('；') || '-'}`,
+        `- 不应再默认（务必避开）：${p.doNotAssume?.join('；') || '-'}`,
+      ].join('\n')
+    : '- 暂无画像'
+  const constraintBlock =
+    input.constraints && input.constraints.length
+      ? `\n\n（上一版回复有问题，请修正后重写，避免：${input.constraints.join('；')}）`
+      : ''
 
   return `# 近期对话
 ${history}
 
 # 你记得关于他的（长期记忆）
 ${mem}
+
+# 伙伴画像
+${profileBlock}
 
 # 训练知识库命中
 ${know}
@@ -352,7 +380,7 @@ ${input.health ?? '- 暂无'}
 ${goals}
 
 用户刚发来：「${input.message}」
-回他。`
+回他。${constraintBlock}`
 }
 
 /** AI 挂掉时的兜底回复（不能真回答,但别装作能答）。 */

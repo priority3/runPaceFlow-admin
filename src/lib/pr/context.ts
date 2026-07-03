@@ -92,7 +92,7 @@ function parseStringArray(value: string | null | undefined): string[] {
   return parsed.filter(item => typeof item === 'string' && item.trim().length > 0)
 }
 
-async function buildCompanionProfileContext(): Promise<CompanionProfileContext> {
+export async function buildCompanionProfileContext(): Promise<CompanionProfileContext> {
   const profile = await getFriendProfile()
   if (!profile) {
     return {
