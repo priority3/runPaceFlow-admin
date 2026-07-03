@@ -10,6 +10,7 @@ import {
 import { generateId } from '@/lib/utils'
 
 import { buildDailyContext, PR_DAILY_BUILDER_VERSION } from './context'
+import { getLatestHealthDailyMetrics } from './health'
 import { callPrModel } from './model'
 import {
   PR_DAILY_PROMPT_VERSION,
@@ -47,7 +48,15 @@ export async function generateDailyReview(options: {
   enqueueNotification?: boolean
 } = {}) {
   const db = await getActivitiesDb()
-  const subjectId = options.date ?? todayShanghai()
+  // Reason: bind the reflection to the day the health data actually describes, not
+  // the server's wall-clock "today". When triggered event-driven (on health upload)
+  // the caller passes that record's date; for manual/fallback runs we fall back to
+  // the most recent health record so we never label yesterday's data as "today".
+  let subjectId = options.date
+  if (!subjectId) {
+    const [latest] = await getLatestHealthDailyMetrics(1)
+    subjectId = latest?.date ?? todayShanghai()
+  }
   const context = await buildDailyContext(subjectId)
   const inputHash = context.stateSnapshot.inputHash
 
@@ -148,7 +157,7 @@ export async function generateDailyReview(options: {
           reviewId,
           channel: 'wechat_test_account',
           recipient: 'default',
-          title: `PR 今日状态：${subjectId}`,
+          title: `PR 晨间状态：${subjectId}`,
           content,
           payloadJson: serialize({ subjectId, inputHash: runInputHash }),
           status: 'pending',
