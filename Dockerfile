@@ -35,8 +35,12 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
 # @libsql 运行时需要 ws(standalone 没打包)
-RUN npm install ws --no-save --no-audit --no-fund 2>/dev/null || \
-    (npm init -y >/dev/null 2>&1 && npm install ws --no-audit --no-fund)
+# Reason: registry.npmjs.org 在本机(heyun/国内)只有 AAAA 记录,npm 走 IPv6 会长时间卡死;
+# 改用 npmmirror 镜像(有 IPv4、国内快),并设置 fetch 超时/重试,避免构建挂在这一步。
+RUN npm install ws --no-save --no-audit --no-fund \
+      --registry=https://registry.npmmirror.com --fetch-timeout=120000 --fetch-retries=5 2>/dev/null || \
+    (npm init -y >/dev/null 2>&1 && \
+     npm install ws --no-audit --no-fund --registry=https://registry.npmmirror.com --fetch-timeout=120000)
 # 装 Playwright Chromium 到固定路径
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
 RUN npx --yes playwright@1.61.0 install chromium
