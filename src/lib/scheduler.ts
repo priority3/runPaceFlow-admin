@@ -27,21 +27,22 @@ async function syncActivities(): Promise<number> {
   let totalSynced = 0
 
   // Reason: admin 已接管同步,直接进程内调用 performSync(增量),不再 HTTP fetch 主站。
-  // Sync Strava
+  // 默认同步源 = Keep(Apple Watch 跑步经苹果健康同步进 Keep;Strava 因政策收紧停用,
+  // 其适配器/路由仍保留,可按需手动触发 /api/sync/strava)。
   try {
-    const result = await performSync({ source: 'strava', limit: 50 })
+    const result = await performSync({ source: 'keep', limit: 50 })
     if (result.success && result.activitiesCount > 0) {
       totalSynced += result.activitiesCount
       const reviews = await generatePrReviewsForActivities(result.activityIds)
-      console.log(`[Scheduler] Strava sync: ${result.activitiesCount} activities`)
+      console.log(`[Scheduler] Keep sync: ${result.activitiesCount} activities`)
       console.log(
         `[Scheduler] PR reviews: ${reviews.generated} generated, ${reviews.skipped} skipped, ${reviews.failed} failed`,
       )
     } else if (!result.success) {
-      console.warn('[Scheduler] Strava sync failed:', result.errorMessage)
+      console.warn('[Scheduler] Keep sync failed:', result.errorMessage)
     }
   } catch (err) {
-    console.warn('[Scheduler] Strava sync failed:', (err as Error).message)
+    console.warn('[Scheduler] Keep sync failed:', (err as Error).message)
   }
 
   return totalSynced

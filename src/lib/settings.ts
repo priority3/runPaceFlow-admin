@@ -111,6 +111,21 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     sensitive: true,
   },
   {
+    key: 'KEEP_MOBILE',
+    label: 'Keep 手机号',
+    description: '登录 Keep 拉取跑步数据的手机号(默认同步源)。Apple Watch 跑步会经苹果健康同步进 Keep。',
+    category: 'sync',
+    kind: 'text',
+  },
+  {
+    key: 'KEEP_PASSWORD',
+    label: 'Keep 密码',
+    description: 'Keep 账号密码(消费级登录,仅用于拉取你自己的跑步数据;加密存储)。',
+    category: 'sync',
+    kind: 'password',
+    sensitive: true,
+  },
+  {
     key: 'HEALTH_IMPORT_TOKEN',
     label: '健康数据上报 Token',
     description:

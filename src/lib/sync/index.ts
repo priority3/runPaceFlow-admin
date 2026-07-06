@@ -12,6 +12,7 @@ export { deleteActivity, syncActivities, syncActivity } from './processor'
 
 // 适配器
 export type { RawActivity, SyncAdapter } from './adapters/base'
+export { KeepAdapter } from './adapters/keep'
 export { NikeAdapter } from './adapters/nike'
 export { StravaAdapter } from './adapters/strava'
 

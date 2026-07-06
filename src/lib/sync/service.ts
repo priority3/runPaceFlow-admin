@@ -6,6 +6,7 @@ import { getRuntimeSettings } from '@/lib/runtime-config'
 import { generateId } from '@/lib/utils'
 
 import type { SyncAdapter } from './adapters/base'
+import { KeepAdapter } from './adapters/keep'
 import { NikeAdapter } from './adapters/nike'
 import { StravaAdapter } from './adapters/strava'
 import { syncActivities } from './processor'
@@ -16,7 +17,7 @@ import { cleanupRaceMatcher, initRaceMatcher } from './race-matcher'
  * 负责协调数据源的同步流程
  */
 
-export type SyncSource = 'nike' | 'strava' | 'garmin'
+export type SyncSource = 'nike' | 'strava' | 'garmin' | 'keep'
 
 /**
  * 同步选项
@@ -90,6 +91,14 @@ function createAdapter(
         throw new Error('No secret string found for garmin')
       }
       throw new Error('Garmin adapter not implemented yet')
+    }
+    case 'keep': {
+      const mobile = settings.KEEP_MOBILE
+      const password = settings.KEEP_PASSWORD
+      if (!mobile || !password) {
+        throw new Error('No credentials found for keep (需在设置里填 KEEP_MOBILE / KEEP_PASSWORD)')
+      }
+      return new KeepAdapter(mobile, password)
     }
     default: {
       throw new Error(`Unknown sync source: ${source}`)
