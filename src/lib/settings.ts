@@ -304,6 +304,14 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     sensitive: true,
   },
   {
+    key: 'PR_CHAT_TOKEN',
+    label: 'PR 对话 H5 访问 Token',
+    description: 'H5 对话应用（/pr）的免登录访问令牌。PushPlus 推送里的链接会带上它,点开即用。请填一串随机字符串。',
+    category: 'notification',
+    kind: 'password',
+    sensitive: true,
+  },
+  {
     key: 'NEXT_PUBLIC_APP_URL',
     label: '主应用地址',
     description: '部署后主应用访问地址，可用于脚本或未来集成。',

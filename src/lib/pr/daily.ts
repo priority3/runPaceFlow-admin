@@ -157,7 +157,7 @@ export async function generateDailyReview(options: {
         .values({
           id: generateId('noti'),
           reviewId,
-          channel: 'wechat_test_account',
+          channel: 'pushplus',
           recipient: 'default',
           title: `PR 晨间状态：${subjectId}`,
           content,

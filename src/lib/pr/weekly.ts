@@ -307,7 +307,7 @@ export async function generateWeeklyReview(options: {
       await db.insert(notificationDeliveries).values({
         id: generateId('noti'),
         reviewId,
-        channel: 'wechat_test_account',
+        channel: 'pushplus',
         recipient: 'default',
         title: `PR 周总结：${subjectId}`,
         content,

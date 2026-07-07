@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
 import { notificationDeliveries } from '@/lib/db/activities-schema'
+import { sendPushPlus } from '@/lib/notify'
 import { getRuntimeSettings } from '@/lib/runtime-config'
 
 import {
@@ -9,6 +10,18 @@ import {
   sendWeChatTestAccountText,
   type WeChatTestAccountConfig,
 } from './wechat-test-account'
+
+/** 把 PR 文本内容 + H5 对话链接组装成 PushPlus 的 HTML 正文。 */
+function buildPushPlusHtml(content: string, settings: Record<string, string>): string {
+  const base = (settings.NEXT_PUBLIC_ADMIN_URL || settings.NEXT_PUBLIC_APP_URL || 'https://runpaceflow-admin.razet.me').replace(/\/$/, '')
+  const token = settings.PR_CHAT_TOKEN
+  const link = token ? `${base}/pr?t=${encodeURIComponent(token)}` : `${base}/pr`
+  const body = content
+    .replace(/\*\*/g, '')
+    .replace(/[<>]/g, ch => (ch === '<' ? '&lt;' : '&gt;'))
+    .replace(/\r?\n/g, '<br>')
+  return `${body}<br><br><a href="${link}" style="display:inline-block;padding:8px 14px;background:#10a37f;color:#fff;border-radius:8px;text-decoration:none;">💬 打开 PR 对话</a>`
+}
 
 export interface NotificationDispatchResult {
   claimed: number
@@ -85,6 +98,32 @@ export async function dispatchPendingNotifications(limit = 10): Promise<Notifica
 
   for (const row of rows) {
     try {
+      // PushPlus 渠道:PR 每日反思/复盘的默认推送方式(取代微信测试号)。正文带 H5 对话链接。
+      if (row.channel === 'pushplus') {
+        const pushToken = settings.PUSHPLUS_TOKEN
+        if (!pushToken) {
+          throw new Error('PUSHPLUS_TOKEN 未配置')
+        }
+        const r = await sendPushPlus(pushToken, row.title, buildPushPlusHtml(row.content, settings))
+        if (!r.success) throw new Error(r.message || 'PushPlus 发送失败')
+        result.sent++
+        await db
+          .update(notificationDeliveries)
+          .set({
+            status: 'sent',
+            attempts: row.attempts + 1,
+            lastError: null,
+            errorCode: null,
+            lockedBy: null,
+            lockedUntil: null,
+            nextRetryAt: null,
+            sentAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(notificationDeliveries.id, row.id))
+        continue
+      }
+
       if (row.channel !== 'wechat_test_account') {
         result.skipped++
         await db

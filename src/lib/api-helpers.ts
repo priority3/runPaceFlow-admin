@@ -92,6 +92,44 @@ export function withHealthImportAuth<TContext = unknown>(
 }
 
 /**
+ * Auth wrapper for the H5 PR chat: allows the request when the admin session cookie is
+ * present OR the Authorization Bearer token matches PR_CHAT_TOKEN.
+ *
+ * Reason: the H5 chat app runs on the user's phone (no admin session); it authenticates
+ * with a shared magic-link token delivered via the PushPlus notification.
+ */
+export function withPrChatAuth<TContext = unknown>(
+  handler: RouteHandler<TContext>,
+): RouteHandler<TContext> {
+  return async (request: Request, context?: TContext) => {
+    try {
+      let expectedToken = ''
+      try {
+        expectedToken = await getRuntimeSetting('PR_CHAT_TOKEN')
+      } catch (error) {
+        console.warn('[pr-chat] 读取 PR_CHAT_TOKEN 失败:', (error as Error).message)
+      }
+
+      const providedToken = extractBearerToken(request.headers.get('authorization'))
+      const tokenOk =
+        expectedToken.length > 0 && providedToken != null && safeEqual(providedToken, expectedToken)
+      const sessionOk = tokenOk ? false : await isAuthenticated()
+
+      if (!tokenOk && !sessionOk) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+
+      return await handler(request, context)
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Internal error' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
  * Auth wrapper for DYNAMIC route segments (e.g. `[id]`, `[runId]`).
  *
  * Reason: Next.js's build-time route validator requires a dynamic handler's second

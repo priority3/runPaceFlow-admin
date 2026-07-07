@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 
-import { withAuth, validateBody } from '@/lib/api-helpers'
+import { withPrChatAuth, validateBody } from '@/lib/api-helpers'
 import { chatWithPr, listConversationMessages } from '@/lib/pr/chat'
 
 export const dynamic = 'force-dynamic'
 
-export const GET = withAuth(async (request) => {
+export const GET = withPrChatAuth(async (request) => {
   const url = new URL(request.url)
   const threadId = url.searchParams.get('threadId')
   if (!threadId) return NextResponse.json({ error: 'threadId is required' }, { status: 400 })
@@ -14,7 +14,7 @@ export const GET = withAuth(async (request) => {
   return NextResponse.json({ messages })
 })
 
-export const POST = withAuth(async (request) => {
+export const POST = withPrChatAuth(async (request) => {
   let body: Record<string, unknown>
   try {
     body = await request.json()

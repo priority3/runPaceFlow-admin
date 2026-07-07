@@ -224,7 +224,7 @@ export async function enqueueReviewNotification(reviewId: string): Promise<strin
     .values({
       id: notificationId,
       reviewId,
-      channel: 'wechat_test_account',
+      channel: 'pushplus',
       recipient: 'default',
       title: 'PR 跑后复盘',
       content: review.content,
@@ -402,7 +402,7 @@ export async function generatePrReviewForActivity(
         .values({
           id: generateId('noti'),
           reviewId,
-          channel: 'wechat_test_account',
+          channel: 'pushplus',
           recipient: 'default',
           title: `PR 跑后复盘：${context.activity.summary.title}`,
           content: generated.content,
