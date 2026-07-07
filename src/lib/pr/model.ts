@@ -21,13 +21,20 @@ const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-20250514'
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const ANTHROPIC_BETA = 'context-1m-2025-08-07'
 
+/** 供多模态输入:base64 图片(仅 Claude/Anthropic 路径支持,网关已验证可用)。 */
+export interface PrModelImage {
+  base64: string
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+}
+
 export async function callPrModel(
   system: string,
   user: string,
-  opts: { maxTokens?: number } = {},
+  opts: { maxTokens?: number; images?: PrModelImage[] } = {},
 ): Promise<PrModelResult> {
   const settings = await getRuntimeSettings({ force: true })
   const maxTokens = opts.maxTokens ?? 900
+  const images = opts.images ?? []
 
   if (settings.ANTHROPIC_API_KEY) {
     const model = settings.PR_REVIEW_MODEL || settings.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL
@@ -36,11 +43,21 @@ export async function callPrModel(
       ...(settings.ANTHROPIC_BASE_URL && { baseURL: settings.ANTHROPIC_BASE_URL }),
       defaultHeaders: { 'anthropic-beta': ANTHROPIC_BETA },
     })
+    // 有图片时组多模态 content 块(图在前、文本在后),否则用纯文本。
+    const content = images.length
+      ? [
+          ...images.map(img => ({
+            type: 'image' as const,
+            source: { type: 'base64' as const, media_type: img.mediaType, data: img.base64 },
+          })),
+          { type: 'text' as const, text: user },
+        ]
+      : user
     const response = await client.messages.create({
       model,
       max_tokens: maxTokens,
       system,
-      messages: [{ role: 'user', content: user }],
+      messages: [{ role: 'user', content }],
     })
     const text = response.content.find(block => block.type === 'text')
     if (!text || text.type !== 'text') throw new Error('No text content in Claude response')

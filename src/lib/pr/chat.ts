@@ -21,6 +21,9 @@ import {
 } from './prompts'
 import { getRaceGoalContext } from './race-goals'
 import { retrieveKnowledge } from './rag'
+import { readImageUpload, uploadNameFromUrl } from './uploads'
+
+type ChatImage = { base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' }
 
 const PR_CHAT_BUILDER_VERSION = 'pr-chat-v2'
 
@@ -95,10 +98,19 @@ export async function getRecentThreadId(withinMs = 24 * 60 * 60 * 1000): Promise
   return Date.now() - row.lastMessageAt.getTime() <= withinMs ? row.id : null
 }
 
-export async function chatWithPr(input: { message: string; threadId?: string | null }) {
+export async function chatWithPr(input: { message: string; threadId?: string | null; imageUrl?: string | null }) {
   const db = await getActivitiesDb()
   const now = new Date()
   let threadId = input.threadId ?? null
+
+  // 图片附件(如有):读盘 → base64 供视觉模型;imageUrl 存进消息 contextJson 以便历史重现。
+  const imageUrl = input.imageUrl || null
+  let images: ChatImage[] = []
+  if (imageUrl) {
+    const name = uploadNameFromUrl(imageUrl)
+    const img = name ? await readImageUpload(name) : null
+    if (img) images = [{ base64: img.bytes.toString('base64'), mediaType: img.mediaType as ChatImage['mediaType'] }]
+  }
 
   if (!threadId) {
     threadId = generateId('thread')
@@ -134,7 +146,8 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     threadId,
     runId,
     role: 'user',
-    content: input.message,
+    content: input.message.trim() || '[图片]',
+    contextJson: imageUrl ? serialize({ imageUrl }) : null,
   })
 
   try {
@@ -202,9 +215,10 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
           health: healthLine,
           raceGoals: goalLines,
           profile: profileBlock,
+          hasImage: images.length > 0,
           constraints,
         }),
-        { maxTokens: 500 },
+        { maxTokens: 500, images },
       )
 
     let answer = buildRuleBasedChatReply()
@@ -314,11 +328,23 @@ export async function listConversationMessages(threadId: string, limit = 30) {
     .orderBy(desc(conversationMessages.createdAt))
     .limit(limit)
 
-  return rows.map(row => ({
-    id: row.id,
-    threadId: row.threadId,
-    role: row.role,
-    content: row.content,
-    createdAt: row.createdAt.toISOString(),
-  }))
+  return rows.map(row => {
+    let imageUrl: string | null = null
+    if (row.contextJson) {
+      try {
+        const ctx = JSON.parse(row.contextJson) as { imageUrl?: string }
+        if (typeof ctx.imageUrl === 'string') imageUrl = ctx.imageUrl
+      } catch {
+        /* ignore */
+      }
+    }
+    return {
+      id: row.id,
+      threadId: row.threadId,
+      role: row.role,
+      content: row.content,
+      imageUrl,
+      createdAt: row.createdAt.toISOString(),
+    }
+  })
 }

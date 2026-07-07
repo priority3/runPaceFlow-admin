@@ -337,6 +337,8 @@ export function buildChatUserPrompt(input: {
   health?: string | null
   raceGoals?: string[]
   profile?: ChatProfileBlock
+  /** 用户是否同时发来图片(多模态)。 */
+  hasImage?: boolean
   /** Evaluator 判定不合格后的重写约束(第二次生成时传入)。 */
   constraints?: string[]
 }) {
@@ -383,7 +385,11 @@ ${input.health ?? '- 暂无'}
 # 比赛目标
 ${goals}
 
-用户刚发来：「${input.message}」
+用户刚发来：「${input.message || '(见图片)'}」${
+    input.hasImage
+      ? '\n（用户同时发来一张图片——请务必看图,自然地聊图里的内容:是跑步/装备/饮食/伤处/风景还是别的?文字可能为空,以图为主。别说"我看不到图"。）'
+      : ''
+  }
 回他。${constraintBlock}`
 }
 
