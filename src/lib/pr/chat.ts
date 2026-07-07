@@ -348,3 +348,29 @@ export async function listConversationMessages(threadId: string, limit = 30) {
     }
   })
 }
+
+/** 列出会话(用于 H5 会话列表);按最近活动排序。 */
+export async function listConversationThreads(limit = 50) {
+  const db = await getActivitiesDb()
+  const rows = await db
+    .select()
+    .from(conversationThreads)
+    .orderBy(desc(conversationThreads.lastMessageAt))
+    .limit(limit)
+  return rows.map(row => ({
+    id: row.id,
+    title: row.title ?? 'PR 对话',
+    lastMessageAt: row.lastMessageAt ? row.lastMessageAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+  }))
+}
+
+/** 删除一个会话及其消息(硬删,不依赖 FK 级联)。 */
+export async function deleteConversationThread(id: string): Promise<boolean> {
+  const db = await getActivitiesDb()
+  const existing = await db.select({ id: conversationThreads.id }).from(conversationThreads).where(eq(conversationThreads.id, id)).limit(1)
+  if (!existing[0]) return false
+  await db.delete(conversationMessages).where(eq(conversationMessages.threadId, id))
+  await db.delete(conversationThreads).where(eq(conversationThreads.id, id))
+  return true
+}
