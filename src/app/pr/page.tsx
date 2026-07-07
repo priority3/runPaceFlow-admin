@@ -53,9 +53,10 @@ const Spinner = ({ size = 20, className }: IconProps) => (
 
 /**
  * PR 对话 H5(手机优先,完整多会话 chat)。RunPaceFlow 品牌:黑白极简 + 荧光绿强调色 + 真实 logo。
+ * 交互参考 Shiro(innei.in):毛玻璃顶栏/输入区、弹簧曲线入场与按压反馈、抽屉滑入、
+ * 两段式删除、textarea 自动长高——全部纯 CSS spring,不引第三方动画库。
  * 主题:作用域 CSS 变量(--pr-*),深色随系统自动切换(不依赖全局 shadcn 令牌)。
  * 免登录:token 由推送链接带入(?t=),存 localStorage。会话/消息都存服务端。
- * 直连 /api/pr/chat(Agent 编排)+ /api/pr/threads(会话列表/删除)+ 图片上传(视觉)。
  */
 export default function PrChatPage() {
   const [token, setToken] = useState<string | null>(null)
@@ -69,9 +70,14 @@ export default function PrChatPage() {
   const [uploading, setUploading] = useState(false)
   const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 历史消息入场错峰只在整屏载入时生效;之后追加的新消息立即入场(否则每次发送都要等 delay)
+  const staggerCountRef = useRef(0)
 
   const authHeader = (): HeadersInit => ({ Authorization: `Bearer ${token ?? ''}` })
   const imgSrc = (url: string) => `${url}${url.includes('?') ? '&' : '?'}t=${encodeURIComponent(token ?? '')}`
@@ -113,16 +119,16 @@ export default function PrChatPage() {
         if (r.status === 401) { setAuthError(true); return }
         if (r.ok) {
           const j = await r.json()
-          setMessages(
-            (j.messages ?? [])
-              .slice()
-              .reverse()
-              .map((m: { role: string; content: string; imageUrl?: string | null }) => ({
-                role: m.role === 'assistant' ? 'assistant' : 'user',
-                content: m.content,
-                imageUrl: m.imageUrl ?? null,
-              })),
-          )
+          const list: Msg[] = (j.messages ?? [])
+            .slice()
+            .reverse()
+            .map((m: { role: string; content: string; imageUrl?: string | null }) => ({
+              role: m.role === 'assistant' ? 'assistant' : 'user',
+              content: m.content,
+              imageUrl: m.imageUrl ?? null,
+            }))
+          staggerCountRef.current = list.length
+          setMessages(list)
         }
       } catch {
         /* ignore */
@@ -160,13 +166,22 @@ export default function PrChatPage() {
   function newChat() {
     setDrawerOpen(false)
     setThreadId(null)
+    staggerCountRef.current = 0
     setMessages([])
     setPendingImageUrl(null)
     localStorage.removeItem('pr_chat_thread')
   }
 
+  /* 两段式删除:第一下把垃圾桶变成「确认删除」,3 秒不点自动还原(替代生硬的 window.confirm) */
+  function armDelete(id: string) {
+    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
+    setConfirmDeleteId(id)
+    deleteTimerRef.current = setTimeout(() => setConfirmDeleteId(null), 3000)
+  }
+
   async function deleteThread(id: string) {
-    if (!window.confirm('删除这个会话?')) return
+    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
+    setConfirmDeleteId(null)
     try {
       await fetch(`/api/pr/threads?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeader() })
     } catch {
@@ -205,6 +220,7 @@ export default function PrChatPage() {
     const imageUrl = pendingImageUrl
     const isNew = !threadId
     setInput('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setPendingImageUrl(null)
     setMessages(m => [...m, { role: 'user', content: text, imageUrl }])
     setSending(true)
@@ -235,6 +251,12 @@ export default function PrChatPage() {
     }
   }
 
+  /* textarea 随内容自动长高(封顶 128px),发出后复位 */
+  function autoGrow(el: HTMLTextAreaElement) {
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`
+  }
+
   function relTime(iso: string | null): string {
     if (!iso) return ''
     const d = new Date(iso)
@@ -252,12 +274,12 @@ export default function PrChatPage() {
       <div className="pr flex h-[100dvh] items-center justify-center p-6 text-center" style={{ background: 'var(--pr-bg)', color: 'var(--pr-text-2)' }}>
         <PrThemeStyle />
         <div>
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: '#fff', border: '1px solid var(--pr-line-strong)' }}>
+          <div className="pr-breath mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: '#fff', border: '1px solid var(--pr-line-strong)' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/pr-logo.png" alt="RunPaceFlow" className="h-10 w-10" />
           </div>
-          <p className="text-sm" style={{ color: 'var(--pr-text)' }}>请从每日推送里的「打开 PR 对话」链接进入。</p>
-          <p className="mt-1.5 text-xs" style={{ color: 'var(--pr-muted)' }}>(缺少访问令牌)</p>
+          <p className="pr-rise text-sm" style={{ color: 'var(--pr-text)' }}>请从每日推送里的「打开 PR 对话」链接进入。</p>
+          <p className="pr-rise mt-1.5 text-xs" style={{ color: 'var(--pr-muted)', animationDelay: '80ms' }}>(缺少访问令牌)</p>
         </div>
       </div>
     )
@@ -266,10 +288,11 @@ export default function PrChatPage() {
   const currentTitle = threads.find(t => t.id === threadId)?.title ?? (threadId ? 'PR 对话' : '新对话')
 
   return (
-    <div className="pr flex h-[100dvh] flex-col" style={{ background: 'var(--pr-bg)', color: 'var(--pr-text)' }}>
+    <div className="pr relative h-[100dvh] overflow-hidden" style={{ background: 'var(--pr-bg)', color: 'var(--pr-text)' }}>
       <PrThemeStyle />
 
-      <header className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderBottom: '1px solid var(--pr-line)' }}>
+      {/* 毛玻璃顶栏:内容从底下滚过 */}
+      <header className="pr-glass absolute inset-x-0 top-0 z-20 flex items-center gap-2.5 px-3.5" style={{ height: 56, borderBottom: '1px solid var(--pr-line)' }}>
         <button type="button" onClick={() => { void fetchThreads(); setDrawerOpen(true) }} className="pr-tap rounded-lg p-1.5" style={{ color: 'var(--pr-text-2)' }} aria-label="会话列表">
           <MenuIcon />
         </button>
@@ -280,15 +303,8 @@ export default function PrChatPage() {
         <div className="min-w-0 flex-1">
           <div className="truncate text-[15px] font-medium tracking-tight">{currentTitle}</div>
           <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--pr-muted)' }}>
-            {sending ? (
-              <>
-                <span className="pr-dot-solid" style={{ background: 'var(--pr-accent)' }} />正在输入…
-              </>
-            ) : (
-              <>
-                <span className="pr-dot-solid" style={{ background: 'var(--pr-accent)' }} />PR · 你的跑步搭子
-              </>
-            )}
+            <span className={`pr-dot-solid ${sending ? 'pr-pulse' : ''}`} style={{ background: 'var(--pr-accent)' }} />
+            {sending ? '正在输入…' : 'PR · 你的跑步搭子'}
           </div>
         </div>
         <button type="button" onClick={newChat} className="pr-tap rounded-lg p-1.5" style={{ color: 'var(--pr-text-2)' }} aria-label="新对话">
@@ -296,66 +312,78 @@ export default function PrChatPage() {
         </button>
       </header>
 
-      {/* 会话抽屉 */}
-      {drawerOpen && (
-        <div className="fixed inset-0 z-40" onClick={() => setDrawerOpen(false)}>
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,.35)' }} />
-          <div className="pr absolute left-0 top-0 flex h-full w-72 flex-col" style={{ background: 'var(--pr-bg)', boxShadow: '2px 0 24px rgba(0,0,0,.18)' }} onClick={e => e.stopPropagation()}>
-            <div className="p-3" style={{ borderBottom: '1px solid var(--pr-line)' }}>
-              <button type="button" onClick={newChat} className="pr-tap flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-medium" style={{ background: 'var(--pr-user-bg)', color: 'var(--pr-user-text)' }}>
-                <PlusIcon size={18} />新对话
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2">
-              {threads.length === 0 && <p className="p-3 text-xs" style={{ color: 'var(--pr-muted)' }}>还没有会话</p>}
-              {threads.map(t => {
-                const active = t.id === threadId
-                return (
-                  <div
-                    key={t.id}
-                    className="pr-tap flex items-center gap-2 rounded-xl px-3 py-2.5"
-                    style={{ background: active ? 'var(--pr-sel)' : 'transparent' }}
-                  >
-                    {active && <span className="shrink-0 pr-dot-solid" style={{ background: 'var(--pr-accent)' }} />}
-                    <button type="button" onClick={() => switchTo(t.id)} className="min-w-0 flex-1 text-left">
-                      <div className="flex items-baseline gap-2">
-                        <div className="min-w-0 flex-1 truncate text-sm" style={{ color: 'var(--pr-text)' }}>{t.title}</div>
-                        <div className="shrink-0 text-[10px]" style={{ color: 'var(--pr-muted)' }}>{relTime(t.lastMessageAt)}</div>
-                      </div>
-                      {t.summary && (
-                        <div className="mt-0.5 truncate text-[11px]" style={{ color: 'var(--pr-muted)' }}>{t.summary}</div>
-                      )}
+      {/* 会话抽屉:常驻渲染,spring 滑入滑出 + 背景淡入(不再瞬间弹出) */}
+      <div className={`fixed inset-0 z-40 ${drawerOpen ? '' : 'pointer-events-none'}`} onClick={() => setDrawerOpen(false)}>
+        <div className="pr-backdrop absolute inset-0" style={{ opacity: drawerOpen ? 1 : 0 }} />
+        <div
+          className="pr-drawer absolute left-0 top-0 flex h-full w-72 flex-col"
+          style={{ background: 'var(--pr-bg)', transform: drawerOpen ? 'translateX(0)' : 'translateX(-105%)' }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="p-3" style={{ borderBottom: '1px solid var(--pr-line)' }}>
+            <button type="button" onClick={newChat} className="pr-tap flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-medium" style={{ background: 'var(--pr-user-bg)', color: 'var(--pr-user-text)' }}>
+              <PlusIcon size={18} />新对话
+            </button>
+          </div>
+          <div className="pr-scroll flex-1 overflow-y-auto p-2">
+            {threads.length === 0 && <p className="p-3 text-xs" style={{ color: 'var(--pr-muted)' }}>还没有会话</p>}
+            {threads.map((t, i) => {
+              const active = t.id === threadId
+              const arming = confirmDeleteId === t.id
+              return (
+                <div
+                  key={t.id}
+                  className="pr-row flex items-center gap-2 rounded-xl px-3 py-2.5"
+                  style={{ background: active ? 'var(--pr-sel)' : 'transparent', animationDelay: drawerOpen ? `${Math.min(i * 30, 240)}ms` : '0ms' }}
+                >
+                  {active && <span className="pr-dot-solid shrink-0" style={{ background: 'var(--pr-accent)' }} />}
+                  <button type="button" onClick={() => switchTo(t.id)} className="min-w-0 flex-1 text-left">
+                    <div className="flex items-baseline gap-2">
+                      <div className="min-w-0 flex-1 truncate text-sm" style={{ color: 'var(--pr-text)' }}>{t.title}</div>
+                      <div className="shrink-0 text-[10px]" style={{ color: 'var(--pr-muted)' }}>{relTime(t.lastMessageAt)}</div>
+                    </div>
+                    {t.summary && (
+                      <div className="mt-0.5 truncate text-[11px]" style={{ color: 'var(--pr-muted)' }}>{t.summary}</div>
+                    )}
+                  </button>
+                  {arming ? (
+                    <button type="button" onClick={() => void deleteThread(t.id)} className="pr-tap pr-pop shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium" style={{ background: 'var(--pr-accent)', color: 'var(--pr-accent-ink)' }}>
+                      确认删除
                     </button>
-                    <button type="button" onClick={() => void deleteThread(t.id)} className="pr-tap shrink-0 p-1" style={{ color: 'var(--pr-muted)' }} aria-label="删除会话">
+                  ) : (
+                    <button type="button" onClick={() => armDelete(t.id)} className="pr-tap shrink-0 p-1" style={{ color: 'var(--pr-muted)' }} aria-label="删除会话">
                       <TrashIcon />
                     </button>
-                  </div>
-                )
-              })}
-            </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
-      )}
+      </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-5" style={{ background: 'var(--pr-area)' }}>
+      {/* 消息区:滚到毛玻璃顶栏/输入区底下 */}
+      <div ref={scrollRef} className="pr-scroll h-full overflow-y-auto px-4" style={{ paddingTop: 72, paddingBottom: 168, overscrollBehavior: 'contain' }}>
         {messages.length === 0 && !sending && (
-          <div className="mx-auto mt-16 max-w-xs text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: '#fff', border: '1px solid var(--pr-line-strong)' }}>
+          <div className="mx-auto mt-20 max-w-xs text-center">
+            <div className="pr-breath mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: '#fff', border: '1px solid var(--pr-line-strong)' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/pr-logo.png" alt="" className="h-10 w-10" />
             </div>
-            <p className="text-[15px] font-medium" style={{ color: 'var(--pr-text)' }}>嗨,我是 PR。</p>
-            <p className="mt-1 text-sm leading-relaxed" style={{ color: 'var(--pr-text-2)' }}>今天感觉怎么样?聊聊训练、睡眠、状态,或者拍张跑鞋、风景给我看看。</p>
+            <p className="pr-rise text-[15px] font-medium" style={{ color: 'var(--pr-text)' }}>嗨,我是 PR。</p>
+            <p className="pr-rise mt-1 text-sm leading-relaxed" style={{ color: 'var(--pr-text-2)', animationDelay: '90ms' }}>今天感觉怎么样?聊聊训练、睡眠、状态,或者拍张跑鞋、风景给我看看。</p>
           </div>
         )}
 
-        <div className="flex flex-col gap-3">
+        <div key={threadId ?? 'new'} className="pr-thread-in flex flex-col gap-2.5">
           {messages.map((m, i) => {
             const isUser = m.role === 'user'
+            // 整屏载入的历史错峰入场;之后追加的消息(i >= staggerCount)立即入场
+            const delay = i < staggerCountRef.current ? `${Math.min(i * 36, 288)}ms` : '0ms'
             if (isUser) {
               return (
-                <div key={i} className="pr-msg flex justify-end">
-                  <div className="max-w-[80%] overflow-hidden" style={{ background: 'var(--pr-user-bg)', color: 'var(--pr-user-text)', borderRadius: '16px 16px 5px 16px' }}>
+                <div key={i} className="pr-msg flex justify-end" style={{ animationDelay: delay }}>
+                  <div className="max-w-[80%] overflow-hidden" style={{ background: 'var(--pr-user-bg)', color: 'var(--pr-user-text)', borderRadius: '18px 18px 6px 18px' }}>
                     {m.imageUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={imgSrc(m.imageUrl)} alt="图片" className="block max-h-72 w-full object-cover" />
@@ -367,10 +395,12 @@ export default function PrChatPage() {
                 </div>
               )
             }
+            // 连续的 PR 消息只在第一条带头像(iMessage 式分组),后续用占位对齐
+            const firstOfGroup = i === 0 || messages[i - 1].role === 'user'
             return (
-              <div key={i} className="pr-msg flex items-end gap-2">
-                <PrAvatar />
-                <div className="max-w-[80%] overflow-hidden" style={{ background: 'var(--pr-ai-bg)', color: 'var(--pr-ai-text)', border: '1px solid var(--pr-line)', borderRadius: '16px 16px 16px 5px' }}>
+              <div key={i} className="pr-msg flex items-end gap-2" style={{ animationDelay: delay }}>
+                {firstOfGroup ? <PrAvatar /> : <div className="w-7 shrink-0" />}
+                <div className="max-w-[80%] overflow-hidden" style={{ background: 'var(--pr-ai-bg)', color: 'var(--pr-ai-text)', borderRadius: '18px 18px 18px 6px' }}>
                   {m.imageUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={imgSrc(m.imageUrl)} alt="图片" className="block max-h-72 w-full object-cover" />
@@ -386,7 +416,7 @@ export default function PrChatPage() {
           {sending && (
             <div className="pr-msg flex items-end gap-2">
               <PrAvatar />
-              <div className="flex items-center gap-1.5 px-4 py-3.5" style={{ background: 'var(--pr-ai-bg)', border: '1px solid var(--pr-line)', borderRadius: '16px 16px 16px 5px' }}>
+              <div className="flex items-center gap-1.5 px-4 py-3.5" style={{ background: 'var(--pr-ai-bg)', borderRadius: '18px 18px 18px 6px' }}>
                 <span className="pr-dot" /><span className="pr-dot" /><span className="pr-dot" />
               </div>
             </div>
@@ -394,14 +424,15 @@ export default function PrChatPage() {
         </div>
       </div>
 
-      <div className="px-3 pt-2.5" style={{ background: 'var(--pr-bg)', borderTop: '1px solid var(--pr-line)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}>
+      {/* 毛玻璃输入区 */}
+      <div className="pr-glass absolute inset-x-0 bottom-0 z-20 px-3 pt-2.5" style={{ borderTop: '1px solid var(--pr-line)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}>
         {authError && (
-          <div className="mb-2 rounded-lg px-3 py-2 text-xs" style={{ background: 'var(--pr-sel)', color: 'var(--pr-text-2)' }}>
+          <div className="pr-pop mb-2 rounded-lg px-3 py-2 text-xs" style={{ background: 'var(--pr-sel)', color: 'var(--pr-text-2)' }}>
             登录已失效,请重新从推送链接进入。
           </div>
         )}
         {pendingImageUrl && (
-          <div className="mb-2 flex items-center gap-2">
+          <div className="pr-pop mb-2 flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={imgSrc(pendingImageUrl)} alt="待发送" className="h-14 w-14 rounded-xl object-cover" style={{ border: '1px solid var(--pr-line-strong)' }} />
             <button type="button" onClick={() => setPendingImageUrl(null)} className="pr-tap flex items-center gap-1 rounded-full px-2 py-1 text-xs" style={{ color: 'var(--pr-text-2)', background: 'var(--pr-sel)' }}>
@@ -419,23 +450,24 @@ export default function PrChatPage() {
             {uploading ? <Spinner /> : <PaperclipIcon />}
           </button>
           <textarea
+            ref={textareaRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={e => { setInput(e.target.value); autoGrow(e.target) }}
             onKeyDown={onKeyDown}
             rows={1}
             placeholder="和 PR 说点什么…"
-            className="pr-input max-h-32 min-h-[42px] flex-1 resize-none rounded-3xl px-4 py-2.5 text-[15px] outline-none"
-            style={{ background: 'var(--pr-area)', color: 'var(--pr-text)', border: '1px solid var(--pr-line)' }}
+            className="pr-input pr-scroll max-h-32 min-h-[42px] flex-1 resize-none rounded-3xl px-4 py-2.5 text-[15px] outline-none"
+            style={{ background: 'var(--pr-sel)', color: 'var(--pr-text)', border: '1px solid var(--pr-line)' }}
           />
           <button
             type="button"
             onClick={() => void send()}
             disabled={!canSend}
-            className="pr-tap mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity"
-            style={{ background: 'var(--pr-accent)', color: 'var(--pr-accent-ink)', opacity: canSend ? 1 : 0.35 }}
+            className="pr-send mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+            style={{ background: 'var(--pr-accent)', color: 'var(--pr-accent-ink)' }}
             aria-label="发送"
           >
-            <SendIcon />
+            {sending ? <Spinner size={18} /> : <SendIcon />}
           </button>
         </div>
       </div>
@@ -453,39 +485,69 @@ function PrAvatar() {
   )
 }
 
-/* 作用域主题变量 + 动画。深色随系统(prefers-color-scheme),不依赖全局 shadcn 令牌 */
+/* 作用域主题变量 + 动画。深色随系统(prefers-color-scheme),不依赖全局 shadcn 令牌。
+   动画语言(参考 Shiro):spring 贝塞尔 --pr-spring 负责入场/按压,expo-out --pr-ease 负责位移。 */
 function PrThemeStyle() {
   return (
     <style>{`
 .pr{
-  --pr-bg:#ffffff; --pr-area:#f5f5f6; --pr-text:#111114; --pr-text-2:#6b6b72;
+  --pr-bg:#ffffff; --pr-text:#111114; --pr-text-2:#6b6b72;
   --pr-muted:#a3a3ac; --pr-line:#ececee; --pr-line-strong:#e0e0e3;
-  --pr-ai-bg:#ffffff; --pr-ai-text:#111114; --pr-user-bg:#141417; --pr-user-text:#f7f7f8;
+  --pr-ai-bg:#f1f1f3; --pr-ai-text:#111114; --pr-user-bg:#141417; --pr-user-text:#f7f7f8;
   --pr-accent:#a3e635; --pr-accent-ink:#1a2e05; --pr-sel:#f0f0f2;
+  --pr-glass:rgba(255,255,255,.78);
+  --pr-spring:cubic-bezier(.34,1.56,.64,1); --pr-ease:cubic-bezier(.16,1,.3,1);
   color-scheme:light;
+  -webkit-tap-highlight-color:transparent;
 }
 @media (prefers-color-scheme:dark){
   .pr{
-    --pr-bg:#0b0b0d; --pr-area:#121214; --pr-text:#f2f2f4; --pr-text-2:#a0a0a8;
+    --pr-bg:#0b0b0d; --pr-text:#f2f2f4; --pr-text-2:#a0a0a8;
     --pr-muted:#6b6b73; --pr-line:#232327; --pr-line-strong:#2c2c31;
-    --pr-ai-bg:#1a1a1e; --pr-ai-text:#f2f2f4; --pr-user-bg:#ededf0; --pr-user-text:#141417;
+    --pr-ai-bg:#1c1c20; --pr-ai-text:#f2f2f4; --pr-user-bg:#ededf0; --pr-user-text:#141417;
     --pr-accent:#a3e635; --pr-accent-ink:#16240a; --pr-sel:#1c1c20;
+    --pr-glass:rgba(11,11,13,.72);
     color-scheme:dark;
   }
 }
+.pr ::selection{background:rgba(163,230,53,.4)}
+.pr .pr-glass{background:var(--pr-glass);backdrop-filter:blur(16px) saturate(1.5);-webkit-backdrop-filter:blur(16px) saturate(1.5)}
+.pr-backdrop{background:rgba(0,0,0,.32);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);transition:opacity .3s ease}
+.pr-drawer{transition:transform .38s var(--pr-ease);box-shadow:8px 0 32px rgba(0,0,0,.14)}
 .pr .pr-input::placeholder{color:var(--pr-muted)}
-.pr .pr-input:focus{border-color:var(--pr-line-strong)}
-.pr .pr-tap{transition:background .15s,opacity .15s}
-.pr .pr-tap:active{opacity:.6}
+.pr .pr-input{transition:border-color .2s,box-shadow .2s}
+.pr .pr-input:focus{border-color:var(--pr-accent);box-shadow:0 0 0 3px rgba(163,230,53,.22)}
+.pr .pr-tap{transition:transform .25s var(--pr-spring),opacity .18s,background-color .18s}
+.pr .pr-tap:active{transform:scale(.9)}
+.pr .pr-row{animation:prRise .4s var(--pr-ease) both;transition:background-color .2s,transform .25s var(--pr-spring)}
+.pr .pr-row:active{transform:scale(.98)}
+.pr .pr-send{transition:transform .35s var(--pr-spring),opacity .2s,background-color .2s}
+.pr .pr-send:disabled{opacity:.35;transform:scale(.86)}
+.pr .pr-send:not(:disabled):active{transform:scale(.88)}
 .pr-dot-solid{width:6px;height:6px;border-radius:9999px;display:inline-block}
+.pr-pulse{animation:prPulse 1.1s ease-in-out infinite}
+@keyframes prPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
 .pr .pr-dot{width:6px;height:6px;border-radius:9999px;background:var(--pr-muted);display:inline-block;animation:prBounce 1.2s infinite ease-in-out}
 .pr .pr-dot:nth-child(2){animation-delay:.15s}
 .pr .pr-dot:nth-child(3){animation-delay:.3s}
 @keyframes prBounce{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
-.pr-msg{animation:prIn .18s ease-out}
-@keyframes prIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.pr-msg{animation:prIn .5s var(--pr-spring) both}
+@keyframes prIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
+.pr-thread-in{animation:prFade .35s ease-out both}
+@keyframes prFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.pr-rise{animation:prRise .6s var(--pr-ease) both}
+@keyframes prRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.pr-pop{animation:prPop .35s var(--pr-spring) both}
+@keyframes prPop{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}
+.pr-breath{animation:prBreath 4.5s ease-in-out infinite}
+@keyframes prBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
 .pr-spin{animation:prSpin .8s linear infinite}
 @keyframes prSpin{to{transform:rotate(360deg)}}
+.pr-scroll{scrollbar-width:none}
+.pr-scroll::-webkit-scrollbar{display:none}
+@media (prefers-reduced-motion:reduce){
+  .pr *,.pr-backdrop,.pr-drawer{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
 `}</style>
   )
 }
