@@ -89,6 +89,14 @@ export const POST = withHealthImportAuth(async (request) => {
   const hasSegments = Array.isArray(sleepSegments)
   const derived = hasSegments ? deriveSleep(sleepSegments, body.napSegments) : null
 
+  // 睡眠新鲜度:醒来时间应是「今晨」。若醒来距今 > 20 小时,这就不是昨晚的觉——
+  // 多半是手表没戴、没有新睡眠,快捷指令把上一晚的旧数据又报了一遍(HealthKit 返回最近可用样本)。
+  // 此时不把旧睡眠当今晚:睡眠摘要置空(恢复标签会变 unknown),让 PR 明说"没读到昨晚睡眠",
+  // 而不是复述前一天的数字。原始 segments 仍保留在 payload 里供追溯。
+  const SLEEP_STALE_MS = 20 * 60 * 60 * 1000
+  const wakeMs = derived?.wakeTime ? new Date(derived.wakeTime).getTime() : null
+  const sleepStale = wakeMs != null && Number.isFinite(wakeMs) && Date.now() - wakeMs > SLEEP_STALE_MS
+
   const audioAvgDb = toNumberOrNull(body.audioAvgDb ?? body.envAudioDb ?? body.environmentalAudioDb)
   const audioMaxDb = toNumberOrNull(body.audioMaxDb)
 
@@ -108,6 +116,7 @@ export const POST = withHealthImportAuth(async (request) => {
               awakenings: derived.awakenings,
               bedtime: derived.bedtime,
               wakeTime: derived.wakeTime,
+              stale: sleepStale,
             }
           : undefined,
       }
@@ -115,9 +124,10 @@ export const POST = withHealthImportAuth(async (request) => {
 
   const metric = await upsertHealthDailyMetric({
     date,
-    sleepMinutes: derived ? derived.sleepMinutes : toNumberOrNull(body.sleepMinutes),
-    deepSleepMinutes: derived ? derived.deepSleepMinutes : toNumberOrNull(body.deepSleepMinutes),
-    remSleepMinutes: derived ? derived.remSleepMinutes : toNumberOrNull(body.remSleepMinutes),
+    // Reason: 睡眠数据过期(见上)→ 摘要置空,不把旧数据当昨晚。
+    sleepMinutes: sleepStale ? null : derived ? derived.sleepMinutes : toNumberOrNull(body.sleepMinutes),
+    deepSleepMinutes: sleepStale ? null : derived ? derived.deepSleepMinutes : toNumberOrNull(body.deepSleepMinutes),
+    remSleepMinutes: sleepStale ? null : derived ? derived.remSleepMinutes : toNumberOrNull(body.remSleepMinutes),
     hrv: toNumberOrNull(body.hrv),
     restingHr: toNumberOrNull(body.restingHr),
     steps: toNumberOrNull(body.steps),

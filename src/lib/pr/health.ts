@@ -37,9 +37,10 @@ function recoveryLabel(input: {
   hrv: number | null
   restingHr: number | null
 }) {
-  if (input.sleepMinutes == null && input.hrv == null && input.restingHr == null) return 'unknown'
-  if ((input.sleepMinutes ?? 0) >= 420 && (input.hrv ?? 0) >= 60) return 'good'
-  if ((input.sleepMinutes ?? 0) >= 360) return 'okay'
+  // 睡眠是恢复标签的锚点:没有睡眠数据就无法判定恢复(避免把"没戴表"误判成 poor)。
+  if (input.sleepMinutes == null) return 'unknown'
+  if (input.sleepMinutes >= 420 && (input.hrv ?? 0) >= 60) return 'good'
+  if (input.sleepMinutes >= 360) return 'okay'
   return 'poor'
 }
 

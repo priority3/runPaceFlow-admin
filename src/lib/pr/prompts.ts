@@ -238,9 +238,13 @@ function formatMinutes(min: number | null | undefined) {
 export function buildDailyReviewUserPrompt(context: DailyContext) {
   const h = context.todayHealth
   // 内部参考,单行铺开——刻意不分「昨晚/昨天」小标题,免得模型照抄成三段式汇报。
+  // 睡眠为空 = 昨晚没读到睡眠(多半没戴表):明确告诉模型别编睡眠数字。
+  const sleepMissing = h != null && h.sleepMinutes == null
   const health = h
     ? [
-        `- 昨晚：睡 ${formatMinutes(h.sleepMinutes)}（深睡 ${formatMinutes(h.deepSleepMinutes)}、REM ${formatMinutes(h.remSleepMinutes)}），静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}，恢复 ${h.recoveryLabel}`,
+        sleepMissing
+          ? `- 昨晚：⚠️ 没读到睡眠数据(可能没戴手表);不要编造睡眠/深睡/REM 数字,可顺口问一句是不是没戴表。静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}`
+          : `- 昨晚：睡 ${formatMinutes(h.sleepMinutes)}（深睡 ${formatMinutes(h.deepSleepMinutes)}、REM ${formatMinutes(h.remSleepMinutes)}），静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}，恢复 ${h.recoveryLabel}`,
         `- 过去一天（≈昨天）：步数 ${h.steps ?? '-'}、环境音量 ${h.envAudioDb ?? '-'}dB`,
       ].join('\n')
     : '- 暂无恢复数据'
