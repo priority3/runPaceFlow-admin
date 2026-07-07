@@ -4,6 +4,7 @@ import OpenAI from 'openai'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
 import {
+  activities,
   activityReviews,
   agentRuns,
   agentStateSnapshots,
@@ -458,19 +459,36 @@ export async function generatePrReviewForActivity(
   }
 }
 
+// 只有近 24h 完成的活动才推送微信;首次/批量同步的历史活动只生成复盘、不推送,
+// 避免一次拉入几十条历史跑步时把用户微信刷屏。
+const NOTIFY_RECENT_WINDOW_MS = 24 * 60 * 60 * 1000
+
 export async function generatePrReviewsForActivities(
   activityIds: string[],
-): Promise<{ generated: number; skipped: number; failed: number }> {
+): Promise<{ generated: number; skipped: number; failed: number; notified: number }> {
+  const db = await getActivitiesDb()
   let generated = 0
   let skipped = 0
   let failed = 0
+  let notified = 0
 
   for (const activityId of Array.from(new Set(activityIds))) {
     try {
+      // Reason: 按活动完成时间决定是否推送——历史回填静默(只入库复盘),新鲜跑步才推。
+      const [act] = await db
+        .select({ startTime: activities.startTime })
+        .from(activities)
+        .where(eq(activities.id, activityId))
+        .limit(1)
+      const isRecent = act?.startTime
+        ? Date.now() - act.startTime.getTime() <= NOTIFY_RECENT_WINDOW_MS
+        : false
+      if (isRecent) notified++
+
       const before = await getCurrentPrReview(activityId)
       const review = await generatePrReviewForActivity(activityId, {
         trigger: 'activity_synced',
-        enqueueNotification: true,
+        enqueueNotification: isRecent,
       })
       if (!review) {
         skipped++
@@ -485,5 +503,5 @@ export async function generatePrReviewsForActivities(
     }
   }
 
-  return { generated, skipped, failed }
+  return { generated, skipped, failed, notified }
 }

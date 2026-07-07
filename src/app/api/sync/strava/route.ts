@@ -30,7 +30,7 @@ export const POST = withAuth(async (request) => {
   const reviews =
     result.success && result.activityIds.length > 0
       ? await generatePrReviewsForActivities(result.activityIds)
-      : { generated: 0, skipped: 0, failed: 0 }
+      : { generated: 0, skipped: 0, failed: 0, notified: 0 }
 
   return NextResponse.json(
     {
