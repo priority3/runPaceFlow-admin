@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
 import {
@@ -13,11 +13,13 @@ import { buildCompanionProfileContext } from './context'
 import { evaluateChatReply, type ChatEvalContext } from './evaluator'
 import { getLatestHealthDailyMetrics } from './health'
 import { applyMemoryPatch, curateMemoryPatches, listContextMemories } from './memory'
-import { callPrModel } from './model'
+import { callPrModel, parseModelJson } from './model'
 import {
   buildChatSystemPrompt,
   buildChatUserPrompt,
   buildRuleBasedChatReply,
+  buildThreadSummarySystemPrompt,
+  buildThreadSummaryUserPrompt,
 } from './prompts'
 import { getRaceGoalContext } from './race-goals'
 import { retrieveKnowledge } from './rag'
@@ -79,6 +81,55 @@ async function curateChatMemoryInBackground(
     }
   }
   await writeSnapshot(runId, 'curate_memory', { learnedMemoryIds, patchCount: patches.length })
+}
+
+const THREAD_SUMMARY_REFRESH_EVERY = 10
+
+/**
+ * 会话标题/摘要后台任务:首轮结束后生成一次,之后每 5 轮(10 条消息)随话题漂移刷新,
+ * 写回 conversation_threads.title/summary。失败只记日志——列表兜底显示首句截断标题。
+ */
+async function refreshThreadSummaryInBackground(runId: string, threadId: string) {
+  const db = await getActivitiesDb()
+  const [countRow] = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(conversationMessages)
+    .where(eq(conversationMessages.threadId, threadId))
+  const total = Number(countRow?.total ?? 0)
+  // Reason: 每条消息都调 LLM 太贵;首轮(2 条)先给准确标题,其后仅在整刷新周期时重算。
+  if (total !== 2 && (total === 0 || total % THREAD_SUMMARY_REFRESH_EVERY !== 0)) return
+
+  const rows = await db
+    .select()
+    .from(conversationMessages)
+    .where(eq(conversationMessages.threadId, threadId))
+    .orderBy(desc(conversationMessages.createdAt))
+    .limit(12)
+  const transcript = rows
+    .reverse()
+    .map(message => `${message.role === 'assistant' ? 'PR' : '用户'}：${message.content.slice(0, 160)}`)
+    .join('\n')
+  if (!transcript) return
+
+  const generated = await callPrModel(
+    buildThreadSummarySystemPrompt(),
+    buildThreadSummaryUserPrompt(transcript),
+    { maxTokens: 160 },
+  )
+  const parsed = parseModelJson(generated.content) as { title?: unknown; summary?: unknown }
+  const title = typeof parsed.title === 'string' ? parsed.title.trim().replace(/["「」『』]/g, '').slice(0, 16) : ''
+  const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : ''
+  if (!title && !summary) return
+
+  await db
+    .update(conversationThreads)
+    .set({
+      ...(title ? { title } : {}),
+      ...(summary ? { summary } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(conversationThreads.id, threadId))
+  await writeSnapshot(runId, 'summarize_thread', { total, title, summary })
 }
 
 /**
@@ -303,6 +354,11 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       console.warn('[pr-chat] 后台记忆蒸馏失败:', (error as Error).message),
     )
 
+    // ── summarize_thread (会话标题/摘要,后台,按轮次节流) ──
+    void refreshThreadSummaryInBackground(runId, threadId).catch(error =>
+      console.warn('[pr-chat] 会话摘要失败:', (error as Error).message),
+    )
+
     return { threadId, runId, answer, model, provider, warnings, learnedMemoryIds: [] }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -360,6 +416,7 @@ export async function listConversationThreads(limit = 50) {
   return rows.map(row => ({
     id: row.id,
     title: row.title ?? 'PR 对话',
+    summary: row.summary ?? null,
     lastMessageAt: row.lastMessageAt ? row.lastMessageAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   }))

@@ -27,6 +27,18 @@ export interface PrModelImage {
   mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
 }
 
+/**
+ * 从模型输出里稳健地取出 JSON 对象(容忍 ```json 围栏或前后杂字)。
+ * 解析失败抛错,由调用方决定降级策略(记忆蒸馏跳过本次、会话摘要保持旧标题等)。
+ */
+export function parseModelJson(text: string): unknown {
+  const cleaned = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  const slice = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned
+  return JSON.parse(slice)
+}
+
 export async function callPrModel(
   system: string,
   user: string,

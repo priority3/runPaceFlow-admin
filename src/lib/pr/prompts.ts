@@ -439,3 +439,25 @@ ${text}
 
 请判断并蒸馏。只输出 JSON。`
 }
+
+export const PR_THREAD_SUMMARY_VERSION = 'pr-thread-summary-v1'
+
+export function buildThreadSummarySystemPrompt() {
+  return `你是会话列表的标题助手。根据 PR(用户的跑步搭子)和用户的一段对话,生成便于在会话列表里辨认的标题和摘要。
+
+要求:
+- title:不超过 12 个字的名词短语,概括对话主题(例:「跑鞋选购」「半马备赛计划」「昨晚睡眠分析」),不要标点、引号、emoji。
+- summary:一句话(不超过 40 字)概括聊了什么、有什么结论。
+- 用对话的主要语言(通常是中文)。
+
+严格只输出 JSON:{"title":"...","summary":"..."}。不要输出 JSON 以外的任何字符。`
+}
+
+export function buildThreadSummaryUserPrompt(transcript: string) {
+  return `对话记录(时间正序,可能被截断):
+"""
+${transcript}
+"""
+
+请生成标题与摘要。只输出 JSON。`
+}

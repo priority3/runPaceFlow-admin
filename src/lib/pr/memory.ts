@@ -4,7 +4,7 @@ import { getActivitiesDb } from '@/lib/db/activities-client'
 import { friendProfile, memoryEvents, memoryItems } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 import { getLatestHealthDailyMetrics } from './health'
-import { callPrModel } from './model'
+import { callPrModel, parseModelJson } from './model'
 import { buildMemoryCurationSystemPrompt, buildMemoryCurationUserPrompt } from './prompts'
 import { getRaceGoalContext } from './race-goals'
 import type { TrainingHabitSignal } from './context'
@@ -119,15 +119,6 @@ function clampConfidence(value: number) {
   return Number.isFinite(value) ? Math.min(0.95, Math.max(0.1, value)) : 0.5
 }
 
-/** 从模型输出里稳健地取出 JSON(容忍 ```json 包裹或前后杂字)。 */
-function parseCurationJson(text: string): { memories?: unknown } {
-  const cleaned = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
-  const start = cleaned.indexOf('{')
-  const end = cleaned.lastIndexOf('}')
-  const slice = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned
-  return JSON.parse(slice)
-}
-
 /**
  * MemoryCurator(LLM 蒸馏 + 结构化判断)。把一段用户文字交给模型判断有没有值得长期
  * 记住的、关于用户的持久事实,并蒸馏成干净的原子记忆候选(type/durable/confidence)。
@@ -153,7 +144,7 @@ export async function curateMemoryPatches(input: {
       buildMemoryCurationUserPrompt(raw, input.source, input.context),
       { maxTokens: 500 },
     )
-    parsed = parseCurationJson(generated.content)
+    parsed = parseModelJson(generated.content) as { memories?: unknown }
   } catch (error) {
     console.warn('[memory-curator] LLM 蒸馏失败，跳过本次(不回退正则):', (error as Error).message)
     return []

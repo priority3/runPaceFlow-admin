@@ -10,6 +10,7 @@ interface Msg {
 interface Thread {
   id: string
   title: string
+  summary: string | null
   lastMessageAt: string | null
 }
 
@@ -317,8 +318,13 @@ export default function PrChatPage() {
                   >
                     {active && <span className="shrink-0 pr-dot-solid" style={{ background: 'var(--pr-accent)' }} />}
                     <button type="button" onClick={() => switchTo(t.id)} className="min-w-0 flex-1 text-left">
-                      <div className="truncate text-sm" style={{ color: 'var(--pr-text)' }}>{t.title}</div>
-                      <div className="text-[11px]" style={{ color: 'var(--pr-muted)' }}>{relTime(t.lastMessageAt)}</div>
+                      <div className="flex items-baseline gap-2">
+                        <div className="min-w-0 flex-1 truncate text-sm" style={{ color: 'var(--pr-text)' }}>{t.title}</div>
+                        <div className="shrink-0 text-[10px]" style={{ color: 'var(--pr-muted)' }}>{relTime(t.lastMessageAt)}</div>
+                      </div>
+                      {t.summary && (
+                        <div className="mt-0.5 truncate text-[11px]" style={{ color: 'var(--pr-muted)' }}>{t.summary}</div>
+                      )}
                     </button>
                     <button type="button" onClick={() => void deleteThread(t.id)} className="pr-tap shrink-0 p-1" style={{ color: 'var(--pr-muted)' }} aria-label="删除会话">
                       <TrashIcon />
