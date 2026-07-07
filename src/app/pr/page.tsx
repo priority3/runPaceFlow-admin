@@ -9,6 +9,7 @@ interface Msg {
 
 /**
  * PR 对话 H5(手机优先,GPT 式聊天窗口)。
+ * 视觉对齐 RunPaceFlow 品牌:黑白极简(黑色奔跑剪影 logo + 黑色强调色 + 浅色背景)。
  * 免登录:token 由每日 PushPlus 推送里的链接带入(?t=),存 localStorage 后续复用。
  * 直连 /api/pr/chat(带 Bearer token)——后端是多节点 Agent 编排(记忆/RAG/健康/Evaluator)。
  * 上传/拍摄为 Phase 2(先占位)。
@@ -104,30 +105,34 @@ export default function PrChatPage() {
 
   if (ready && !token) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-neutral-950 p-6 text-center text-neutral-300">
+      <div className="flex h-[100dvh] items-center justify-center bg-white p-6 text-center text-neutral-700">
         <div>
-          <div className="mb-2 text-2xl">🏃</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/pr-logo.png" alt="RunPaceFlow" className="mx-auto mb-3 h-14 w-14" />
           <p className="text-sm">请从每日推送里的「打开 PR 对话」链接进入。</p>
-          <p className="mt-1 text-xs text-neutral-500">(缺少访问令牌)</p>
+          <p className="mt-1 text-xs text-neutral-400">(缺少访问令牌)</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-neutral-950 text-neutral-100">
-      <header className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-sm">🏃</span>
+    <div className="flex h-[100dvh] flex-col bg-white text-neutral-900">
+      <header className="flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/pr-logo.png" alt="RunPaceFlow" className="h-8 w-8" />
         <div>
-          <div className="text-sm font-medium">PR · 你的跑步搭子</div>
-          <div className="text-[11px] text-neutral-500">{sending ? '正在想…' : '在线'}</div>
+          <div className="text-sm font-semibold tracking-tight">PR · 你的跑步搭子</div>
+          <div className="text-[11px] text-neutral-400">{sending ? '正在想…' : 'RunPaceFlow'}</div>
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-neutral-50 px-4 py-4">
         {messages.length === 0 && !sending && (
-          <div className="mt-10 text-center text-sm text-neutral-500">
-            <p>嗨,我是 PR。今天感觉怎么样?</p>
+          <div className="mt-12 text-center text-sm text-neutral-400">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/pr-logo.png" alt="" className="mx-auto mb-3 h-12 w-12 opacity-80" />
+            <p className="text-neutral-600">嗨,我是 PR。今天感觉怎么样?</p>
             <p className="mt-1 text-xs">聊聊训练、睡眠、状态,或者随便说说。</p>
           </div>
         )}
@@ -136,8 +141,8 @@ export default function PrChatPage() {
             <div
               className={
                 m.role === 'user'
-                  ? 'max-w-[82%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-emerald-600 px-3.5 py-2 text-sm text-white'
-                  : 'max-w-[82%] whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm bg-neutral-800 px-3.5 py-2 text-sm text-neutral-100'
+                  ? 'max-w-[82%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-neutral-900 px-3.5 py-2 text-sm text-white'
+                  : 'max-w-[82%] whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-neutral-200 bg-white px-3.5 py-2 text-sm text-neutral-900'
               }
             >
               {m.content}
@@ -146,18 +151,20 @@ export default function PrChatPage() {
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-sm bg-neutral-800 px-3.5 py-2 text-sm text-neutral-400">PR 正在想… ⏳</div>
+            <div className="rounded-2xl rounded-bl-sm border border-neutral-200 bg-white px-3.5 py-2 text-sm text-neutral-400">
+              PR 正在想… ⏳
+            </div>
           </div>
         )}
       </div>
 
-      <div className="border-t border-white/10 px-3 py-2.5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}>
+      <div className="border-t border-neutral-200 bg-white px-3 py-2.5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}>
         <div className="flex items-end gap-2">
           <button
             type="button"
             disabled
             title="上传 / 拍摄即将支持"
-            className="mb-0.5 shrink-0 rounded-full p-2 text-neutral-600"
+            className="mb-0.5 shrink-0 rounded-full p-2 text-neutral-300"
           >
             📎
           </button>
@@ -167,13 +174,13 @@ export default function PrChatPage() {
             onKeyDown={onKeyDown}
             rows={1}
             placeholder="和 PR 说点什么…"
-            className="max-h-32 min-h-[40px] flex-1 resize-none rounded-2xl border border-white/10 bg-neutral-900 px-3.5 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-emerald-500/50"
+            className="max-h-32 min-h-[40px] flex-1 resize-none rounded-2xl border border-neutral-300 bg-white px-3.5 py-2 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-neutral-900"
           />
           <button
             type="button"
             onClick={() => void send()}
             disabled={!input.trim() || sending}
-            className="mb-0.5 shrink-0 rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            className="mb-0.5 shrink-0 rounded-full bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-30"
           >
             发送
           </button>

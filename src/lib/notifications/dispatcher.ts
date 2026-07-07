@@ -20,7 +20,7 @@ function buildPushPlusHtml(content: string, settings: Record<string, string>): s
     .replace(/\*\*/g, '')
     .replace(/[<>]/g, ch => (ch === '<' ? '&lt;' : '&gt;'))
     .replace(/\r?\n/g, '<br>')
-  return `${body}<br><br><a href="${link}" style="display:inline-block;padding:8px 14px;background:#10a37f;color:#fff;border-radius:8px;text-decoration:none;">💬 打开 PR 对话</a>`
+  return `${body}<br><br><a href="${link}" style="display:inline-block;padding:8px 14px;background:#171717;color:#fff;border-radius:8px;text-decoration:none;">💬 打开 PR 对话</a>`
 }
 
 export interface NotificationDispatchResult {
