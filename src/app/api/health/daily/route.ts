@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { withAuth, withHealthImportAuth } from '@/lib/api-helpers'
+import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
 import { generateDailyReview } from '@/lib/pr/daily'
 import { deriveSleep } from '@/lib/pr/health-derive'
 import { getLatestHealthDailyMetrics, upsertHealthDailyMetric } from '@/lib/pr/health'
@@ -145,13 +146,19 @@ export const POST = withHealthImportAuth(async (request) => {
   }
 
   // Reason: fire the daily reflection the moment fresh health data lands, bound to
-  // that record's date. This is event-driven instead of a fixed cron clock, so PR
-  // reflects on the day just uploaded whenever the user actually wakes — never before
-  // the morning's data exists. Non-blocking: the reporter isn't held on the AI call,
-  // and the notification-dispatch job (every 10 min) delivers the result.
-  void generateDailyReview({ date }).catch((error) =>
-    console.warn('[health/daily] daily reflection failed:', (error as Error).message),
-  )
+  // that record's date. Event-driven instead of a fixed cron clock, so PR reflects on
+  // the day just uploaded whenever the user actually wakes. Non-blocking: the reporter
+  // isn't held on the AI call. 生成成功后立即分发通知(不等每 10 分钟的定时任务),
+  // 让微信在数据上报后几秒内就到,而不是延迟最多 10 分钟。
+  void generateDailyReview({ date })
+    .then(async (result) => {
+      if (result?.generated) {
+        await dispatchPendingNotifications(5)
+      }
+    })
+    .catch((error) =>
+      console.warn('[health/daily] daily reflection/dispatch failed:', (error as Error).message),
+    )
 
   return NextResponse.json({ metricId: metric.id, metric })
 })

@@ -36,8 +36,12 @@ async function syncActivities(): Promise<number> {
       const reviews = await generatePrReviewsForActivities(result.activityIds)
       console.log(`[Scheduler] Keep sync: ${result.activitiesCount} activities`)
       console.log(
-        `[Scheduler] PR reviews: ${reviews.generated} generated, ${reviews.skipped} skipped, ${reviews.failed} failed`,
+        `[Scheduler] PR reviews: ${reviews.generated} generated, ${reviews.skipped} skipped, ${reviews.failed} failed, ${reviews.notified} notified`,
       )
+      // 有新鲜跑步入队了推送 → 立即分发(不等每 10 分钟的定时),微信几秒内到。
+      if (reviews.notified > 0) {
+        await dispatchPendingNotifications(5)
+      }
     } else if (!result.success) {
       console.warn('[Scheduler] Keep sync failed:', result.errorMessage)
     }
