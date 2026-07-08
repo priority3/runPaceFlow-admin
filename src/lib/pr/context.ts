@@ -323,31 +323,81 @@ function formatPace(secPerKm: number | null): string | null {
   return `${minutes}'${String(seconds).padStart(2, '0')}"`
 }
 
+/** activities 行 → 上下文条目(只依赖摘要列,不碰 GPX 大字段)。 */
+type ActivitySummaryRow = {
+  startTime: Date
+  type: string
+  distance: number
+  duration: number
+  averagePace: number | null
+  averageHeartRate: number | null
+}
+
+const ACTIVITY_SUMMARY_COLUMNS = {
+  startTime: activities.startTime,
+  type: activities.type,
+  distance: activities.distance,
+  duration: activities.duration,
+  averagePace: activities.averagePace,
+  averageHeartRate: activities.averageHeartRate,
+}
+
+function mapActivityRow(row: ActivitySummaryRow, fmt: Intl.DateTimeFormat, today: string): RecentActivityContext {
+  const date = fmt.format(row.startTime)
+  const daysAgo = Math.max(0, Math.round((Date.parse(today) - Date.parse(date)) / 86_400_000))
+  const distanceKm = row.distance / 1000
+  // Reason: Keep 摘要有时缺 averagePace,用距离/时长推导,避免明明有数据却答"没存配速"
+  const paceSecPerKm = row.averagePace ?? (distanceKm > 0 ? row.duration / distanceKm : null)
+  return {
+    date,
+    daysAgo,
+    type: row.type,
+    distanceKm: Math.round(distanceKm * 100) / 100,
+    durationMin: Math.round(row.duration / 60),
+    paceText: formatPace(paceSecPerKm),
+    avgHeartRate: row.averageHeartRate ?? null,
+  }
+}
+
 /**
  * 最近 N 次运动(FactLoader 之一,供对话引用真实跑步记录——此前对话只喂健康数据,
  * PR 会对"上次跑步"瞎猜)。日期按 Asia/Shanghai(与健康数据同键)。
  */
 export async function getRecentActivityContext(limit = 5): Promise<RecentActivityContext[]> {
   const db = await getActivitiesDb()
-  const rows = await db.select().from(activities).orderBy(desc(activities.startTime)).limit(limit)
+  const rows = await db
+    .select(ACTIVITY_SUMMARY_COLUMNS)
+    .from(activities)
+    .orderBy(desc(activities.startTime))
+    .limit(limit)
   const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' })
   const today = fmt.format(new Date())
-  return rows.map(row => {
-    const date = fmt.format(row.startTime)
-    const daysAgo = Math.max(0, Math.round((Date.parse(today) - Date.parse(date)) / 86_400_000))
-    const distanceKm = row.distance / 1000
-    // Reason: Keep 摘要有时缺 averagePace,用距离/时长推导,避免明明有数据却答"没存配速"
-    const paceSecPerKm = row.averagePace ?? (distanceKm > 0 ? row.duration / distanceKm : null)
-    return {
-      date,
-      daysAgo,
-      type: row.type,
-      distanceKm: Math.round(distanceKm * 100) / 100,
-      durationMin: Math.round(row.duration / 60),
-      paceText: formatPace(paceSecPerKm),
-      avgHeartRate: row.averageHeartRate ?? null,
-    }
-  })
+  return rows.map(row => mapActivityRow(row, fmt, today))
+}
+
+/**
+ * 每种运动类型各自的最近一次。补"最近 N 条"窗口的盲区:比如最近连续骑行,
+ * 跑步被挤出窗口,PR 会答"查不到跑步记录"——但对跑步搭子来说,
+ * 「距上次跑步多久了」恰恰是最重要的事实。
+ */
+export async function getLatestActivityPerType(): Promise<RecentActivityContext[]> {
+  const db = await getActivitiesDb()
+  // 活动量级很小(几十~几百条),取摘要列扫一遍在 JS 里去重,比 GROUP BY 子查询直白
+  const rows = await db
+    .select(ACTIVITY_SUMMARY_COLUMNS)
+    .from(activities)
+    .orderBy(desc(activities.startTime))
+    .limit(500)
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' })
+  const today = fmt.format(new Date())
+  const seen = new Set<string>()
+  const latest: RecentActivityContext[] = []
+  for (const row of rows) {
+    if (seen.has(row.type)) continue
+    seen.add(row.type)
+    latest.push(mapActivityRow(row, fmt, today))
+  }
+  return latest
 }
 
 export const PR_DAILY_BUILDER_VERSION = 'pr-daily-v1'

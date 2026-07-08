@@ -9,7 +9,7 @@ import {
 } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 
-import { buildCompanionProfileContext, getRecentActivityContext } from './context'
+import { buildCompanionProfileContext, getLatestActivityPerType, getRecentActivityContext } from './context'
 import { evaluateChatReply, type ChatEvalContext } from './evaluator'
 import { getLatestHealthDailyMetrics } from './health'
 import { applyMemoryPatch, curateMemoryPatches, listContextMemories } from './memory'
@@ -204,7 +204,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
   try {
     // ── build_context (FactLoader + FeatureBuilder + MemoryRetriever + KnowledgeRetriever) ──
     // 每个来源独立降级:RAG/记忆/健康/目标/画像任一失败都不该让对话挂掉。
-    const [memoryItems, knowledge, recentMessages, recentHealth, raceGoals, companionProfile, recentActivities] =
+    const [memoryItems, knowledge, recentMessages, recentHealth, raceGoals, companionProfile, recentActivities, latestPerType] =
       await Promise.all([
         listContextMemories(6).catch(() => []),
         retrieveKnowledge(input.message, 3).catch(() => []),
@@ -218,6 +218,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
         getRaceGoalContext(3).catch(() => []),
         buildCompanionProfileContext().catch(() => null),
         getRecentActivityContext(5).catch(() => []),
+        getLatestActivityPerType().catch(() => []),
       ])
 
     // 历史(不含刚插入的这条),按时间正序;新消息单独作为"刚发来"传给模型。
@@ -231,9 +232,20 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       : null
     const goalLines = raceGoals.map(goal => `${goal.name}（还有 ${goal.daysUntilRace} 天）`)
     const activityTypeLabel: Record<string, string> = { running: '跑步', cycling: '骑行', walking: '步行' }
-    const runLines = recentActivities.map(act =>
-      `- ${act.date}（${act.daysAgo === 0 ? '今天' : act.daysAgo === 1 ? '昨天' : `${act.daysAgo} 天前`}）：${activityTypeLabel[act.type] ?? act.type} ${act.distanceKm} km，用时 ${act.durationMin} 分钟${act.paceText ? `，配速 ${act.paceText}/km` : ''}${act.avgHeartRate ? `，平均心率 ${act.avgHeartRate}` : ''}`,
+    const daysAgoLabel = (days: number) => (days === 0 ? '今天' : days === 1 ? '昨天' : `${days} 天前`)
+    const activityLine = (act: (typeof recentActivities)[number]) =>
+      `- ${act.date}（${daysAgoLabel(act.daysAgo)}）：${activityTypeLabel[act.type] ?? act.type} ${act.distanceKm} km，用时 ${act.durationMin} 分钟${act.paceText ? `，配速 ${act.paceText}/km` : ''}${act.avgHeartRate ? `，平均心率 ${act.avgHeartRate}` : ''}`
+    const runLines = recentActivities.map(activityLine)
+    // 「最近 N 条」窗口可能全被单一类型占满(比如连续骑行),把每种类型的最近一次补进来,
+    // 并显式给出"距上次跑步 N 天"——跑步搭子最关键的事实,不能让模型自己推。
+    const lastRun = latestPerType.find(act => act.type === 'running')
+    if (lastRun) runLines.unshift(`- 距上次跑步已 ${lastRun.daysAgo} 天`)
+    const extraPerType = latestPerType.filter(
+      act => !recentActivities.some(recent => recent.date === act.date && recent.type === act.type),
     )
+    if (extraPerType.length) {
+      runLines.push('（更早的,各类型最近一次）', ...extraPerType.map(activityLine))
+    }
     const profileBlock = companionProfile
       ? {
           displayName: companionProfile.displayName,
@@ -250,6 +262,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       historyTurns: history.length,
       hasHealth: Boolean(h),
       recentActivityCount: recentActivities.length,
+      lastRunDaysAgo: lastRun?.daysAgo ?? null,
       raceGoals: goalLines,
       profileVersion: companionProfile?.projectionVersion ?? null,
     })
