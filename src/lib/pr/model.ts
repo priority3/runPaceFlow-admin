@@ -126,6 +126,8 @@ export async function callPrModel(
     // Agent 循环:模型要调工具 → 本地执行 → 结果喂回 → 直到产出正式回答。
     // 注意:消息里一旦出现 tool_use 块,后续请求必须继续带 tools 参数,
     // 所以轮次耗尽时不去掉 tools,而是用错误 tool_result 逼模型直接作答。
+    let interimText = '' // 工具轮里模型顺带说的话;空响应兜底时好过整句丢掉
+    let emptyRetried = false
     for (let round = 0; round <= maxToolRounds + 1; round++) {
       let response: Anthropic.Message
       try {
@@ -152,12 +154,18 @@ export async function callPrModel(
         }
       }
 
-      if (useTools && response.stop_reason === 'tool_use') {
+      // 有 tool_use 块就按工具轮处理(不依赖 stop_reason——网关偶见 stop_reason 失真)
+      const toolUseBlocks = useTools
+        ? response.content.filter(block => block.type === 'tool_use')
+        : []
+      const textBlock = response.content.find(block => block.type === 'text')
+
+      if (toolUseBlocks.length > 0) {
+        if (textBlock && textBlock.type === 'text' && textBlock.text.trim()) interimText = textBlock.text.trim()
         messages.push({ role: 'assistant', content: response.content })
         const exhausted = round >= maxToolRounds
         const results: Anthropic.ToolResultBlockParam[] = []
-        for (const block of response.content) {
-          if (block.type !== 'tool_use') continue
+        for (const block of toolUseBlocks) {
           let result: string
           if (exhausted) {
             result = JSON.stringify({ error: '工具轮次已用完,请基于已有信息直接回答' })
@@ -179,9 +187,21 @@ export async function callPrModel(
         continue
       }
 
-      const text = response.content.find(block => block.type === 'text')
-      if (!text || text.type !== 'text') throw new Error('No text content in Claude response')
-      return { content: text.text, model, provider: 'claude' }
+      if (textBlock && textBlock.type === 'text' && textBlock.text.trim()) {
+        return { content: textBlock.text, model, provider: 'claude' }
+      }
+
+      // 空响应(既无文本也无工具块,网关/模型偶发抽风):原样重试一次;再空用工具轮攒的文本兜底
+      if (!emptyRetried) {
+        emptyRetried = true
+        round--
+        console.warn('[pr-model] 空响应,重试一次 (stop=%s)', response.stop_reason)
+        continue
+      }
+      if (interimText) return { content: interimText, model, provider: 'claude' }
+      throw new Error(
+        `No text content in Claude response (stop=${response.stop_reason}, blocks=[${response.content.map(block => block.type).join(',')}])`,
+      )
     }
     throw new Error('Tool loop exhausted without a final answer')
   }
