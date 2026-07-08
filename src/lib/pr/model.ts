@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 
+import { clip, OI, withSpan } from '@/lib/observability/trace'
 import { getRuntimeSettings } from '@/lib/runtime-config'
 
 /**
@@ -126,33 +127,78 @@ export async function callPrModel(
     // Agent 循环:模型要调工具 → 本地执行 → 结果喂回 → 直到产出正式回答。
     // 注意:消息里一旦出现 tool_use 块,后续请求必须继续带 tools 参数,
     // 所以轮次耗尽时不去掉 tools,而是用错误 tool_result 逼模型直接作答。
+    // trace 里放消息预览:文本原样、tool_result 摘要、图片等块只留类型标记(base64 绝不入 trace)
+    const previewMessage = (message: Anthropic.MessageParam): string =>
+      clip(
+        typeof message.content === 'string'
+          ? message.content
+          : message.content
+              .map(block =>
+                block.type === 'text'
+                  ? block.text
+                  : block.type === 'tool_result'
+                    ? `[tool_result] ${typeof block.content === 'string' ? block.content : ''}`
+                    : `[${block.type}]`,
+              )
+              .join('\n'),
+        2000,
+      )
+
     let interimText = '' // 工具轮里模型顺带说的话;空响应兜底时好过整句丢掉
     let emptyRetried = false
     for (let round = 0; round <= maxToolRounds + 1; round++) {
-      let response: Anthropic.Message
-      try {
-        response = await client.messages.create(buildParams())
-      } catch (error) {
-        // Reason: 第三方网关可能不透传 cache_control / tools;仅首轮逐级降级,保底能聊
-        if (round === 0 && useCache) {
-          console.warn('[pr-model] 带 cache_control 调用失败,降级重试:', (error as Error).message)
-          useCache = false
+      const response: Anthropic.Message = await withSpan(
+        'llm.claude',
+        'LLM',
+        {
+          [OI.LLM_MODEL]: model,
+          'llm.round': round,
+          [OI.INPUT]: previewMessage(messages[messages.length - 1]),
+        },
+        async span => {
+          let res: Anthropic.Message
           try {
-            response = await client.messages.create(buildParams())
-          } catch (retryError) {
-            if (!useTools) throw retryError
-            console.warn('[pr-model] 带 tools 调用仍失败,降级为无工具模式:', (retryError as Error).message)
-            useTools = false
-            response = await client.messages.create(buildParams())
+            res = await client.messages.create(buildParams())
+          } catch (error) {
+            // Reason: 第三方网关可能不透传 cache_control / tools;仅首轮逐级降级,保底能聊
+            if (round === 0 && useCache) {
+              console.warn('[pr-model] 带 cache_control 调用失败,降级重试:', (error as Error).message)
+              useCache = false
+              try {
+                res = await client.messages.create(buildParams())
+              } catch (retryError) {
+                if (!useTools) throw retryError
+                console.warn('[pr-model] 带 tools 调用仍失败,降级为无工具模式:', (retryError as Error).message)
+                useTools = false
+                res = await client.messages.create(buildParams())
+              }
+            } else if (round === 0 && useTools) {
+              console.warn('[pr-model] 带 tools 调用失败,降级为无工具模式:', (error as Error).message)
+              useTools = false
+              res = await client.messages.create(buildParams())
+            } else {
+              throw error
+            }
           }
-        } else if (round === 0 && useTools) {
-          console.warn('[pr-model] 带 tools 调用失败,降级为无工具模式:', (error as Error).message)
-          useTools = false
-          response = await client.messages.create(buildParams())
-        } else {
-          throw error
-        }
-      }
+          const usage = res.usage as
+            | { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number | null }
+            | undefined
+          if (usage?.input_tokens != null) span.setAttribute(OI.LLM_TOKENS_PROMPT, usage.input_tokens)
+          if (usage?.output_tokens != null) span.setAttribute(OI.LLM_TOKENS_COMPLETION, usage.output_tokens)
+          if (usage?.cache_read_input_tokens != null) span.setAttribute(OI.LLM_TOKENS_CACHE_READ, usage.cache_read_input_tokens)
+          span.setAttribute('llm.stop_reason', res.stop_reason ?? '')
+          span.setAttribute(
+            OI.OUTPUT,
+            clip(
+              res.content
+                .map(block => (block.type === 'text' ? block.text : `[${block.type}${block.type === 'tool_use' ? `:${block.name}` : ''}]`))
+                .join('\n'),
+              2000,
+            ),
+          )
+          return res
+        },
+      )
 
       // 有 tool_use 块就按工具轮处理(不依赖 stop_reason——网关偶见 stop_reason 失真)
       const toolUseBlocks = useTools
@@ -171,7 +217,16 @@ export async function callPrModel(
             result = JSON.stringify({ error: '工具轮次已用完,请基于已有信息直接回答' })
           } else {
             try {
-              result = await opts.executeTool!(block.name, block.input)
+              result = await withSpan(
+                `tool.${block.name}`,
+                'TOOL',
+                { [OI.TOOL_NAME]: block.name, [OI.INPUT]: clip(block.input, 1000) },
+                async span => {
+                  const output = await opts.executeTool!(block.name, block.input)
+                  span.setAttribute(OI.OUTPUT, clip(output, 2000))
+                  return output
+                },
+              )
             } catch (error) {
               result = JSON.stringify({ error: (error as Error).message })
             }

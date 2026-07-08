@@ -1,6 +1,8 @@
+import { type Span } from '@opentelemetry/api'
 import { desc, eq, sql } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
+import { clip, OI, withSpan } from '@/lib/observability/trace'
 import {
   agentRuns,
   agentStateSnapshots,
@@ -59,30 +61,33 @@ async function curateChatMemoryInBackground(
   message: string,
   history: Array<{ role: string; content: string }>,
 ) {
-  const context = history.length
-    ? history.map(turn => `${turn.role === 'assistant' ? 'PR' : '用户'}：${turn.content}`).join('\n')
-    : null
-  const patches = await curateMemoryPatches({
-    source: 'conversation_message',
-    refId: userMessageId,
-    text: message,
-    context,
-  })
-  const learnedMemoryIds: string[] = []
-  for (const [index, patch] of patches.entries()) {
-    try {
-      learnedMemoryIds.push(
-        await applyMemoryPatch(patch, {
-          actor: 'user',
-          idempotencyKey: `chat:${userMessageId}:memory:${index}`,
-          runId,
-        }),
-      )
-    } catch (error) {
-      console.warn('[pr-chat] 记忆写入失败:', (error as Error).message)
+  return withSpan('pr.curate_memory', 'CHAIN', { 'pr.run_id': runId, [OI.INPUT]: clip(message, 1000) }, async span => {
+    const context = history.length
+      ? history.map(turn => `${turn.role === 'assistant' ? 'PR' : '用户'}：${turn.content}`).join('\n')
+      : null
+    const patches = await curateMemoryPatches({
+      source: 'conversation_message',
+      refId: userMessageId,
+      text: message,
+      context,
+    })
+    const learnedMemoryIds: string[] = []
+    for (const [index, patch] of patches.entries()) {
+      try {
+        learnedMemoryIds.push(
+          await applyMemoryPatch(patch, {
+            actor: 'user',
+            idempotencyKey: `chat:${userMessageId}:memory:${index}`,
+            runId,
+          }),
+        )
+      } catch (error) {
+        console.warn('[pr-chat] 记忆写入失败:', (error as Error).message)
+      }
     }
-  }
-  await writeSnapshot(runId, 'curate_memory', { learnedMemoryIds, patchCount: patches.length })
+    span.setAttribute(OI.OUTPUT, JSON.stringify({ patchCount: patches.length, learned: learnedMemoryIds.length }))
+    await writeSnapshot(runId, 'curate_memory', { learnedMemoryIds, patchCount: patches.length })
+  })
 }
 
 const THREAD_SUMMARY_REFRESH_EVERY = 10
@@ -92,46 +97,52 @@ const THREAD_SUMMARY_REFRESH_EVERY = 10
  * 写回 conversation_threads.title/summary。失败只记日志——列表兜底显示首句截断标题。
  */
 async function refreshThreadSummaryInBackground(runId: string, threadId: string) {
-  const db = await getActivitiesDb()
-  const [countRow] = await db
-    .select({ total: sql<number>`count(*)` })
-    .from(conversationMessages)
-    .where(eq(conversationMessages.threadId, threadId))
-  const total = Number(countRow?.total ?? 0)
-  // Reason: 每条消息都调 LLM 太贵;首轮(2 条)先给准确标题,其后仅在整刷新周期时重算。
-  if (total !== 2 && (total === 0 || total % THREAD_SUMMARY_REFRESH_EVERY !== 0)) return
+  return withSpan('pr.thread_summary', 'CHAIN', { 'pr.run_id': runId, [OI.SESSION_ID]: threadId }, async span => {
+    const db = await getActivitiesDb()
+    const [countRow] = await db
+      .select({ total: sql<number>`count(*)` })
+      .from(conversationMessages)
+      .where(eq(conversationMessages.threadId, threadId))
+    const total = Number(countRow?.total ?? 0)
+    // Reason: 每条消息都调 LLM 太贵;首轮(2 条)先给准确标题,其后仅在整刷新周期时重算。
+    if (total !== 2 && (total === 0 || total % THREAD_SUMMARY_REFRESH_EVERY !== 0)) {
+      span.setAttribute(OI.OUTPUT, `skipped (total=${total})`)
+      return
+    }
 
-  const rows = await db
-    .select()
-    .from(conversationMessages)
-    .where(eq(conversationMessages.threadId, threadId))
-    .orderBy(desc(conversationMessages.createdAt))
-    .limit(12)
-  const transcript = rows
-    .reverse()
-    .map(message => `${message.role === 'assistant' ? 'PR' : '用户'}：${message.content.slice(0, 160)}`)
-    .join('\n')
-  if (!transcript) return
+    const rows = await db
+      .select()
+      .from(conversationMessages)
+      .where(eq(conversationMessages.threadId, threadId))
+      .orderBy(desc(conversationMessages.createdAt))
+      .limit(12)
+    const transcript = rows
+      .reverse()
+      .map(message => `${message.role === 'assistant' ? 'PR' : '用户'}：${message.content.slice(0, 160)}`)
+      .join('\n')
+    if (!transcript) return
 
-  const generated = await callPrModel(
-    buildThreadSummarySystemPrompt(),
-    buildThreadSummaryUserPrompt(transcript),
-    { maxTokens: 160 },
-  )
-  const parsed = parseModelJson(generated.content) as { title?: unknown; summary?: unknown }
-  const title = typeof parsed.title === 'string' ? parsed.title.trim().replace(/["「」『』]/g, '').slice(0, 16) : ''
-  const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : ''
-  if (!title && !summary) return
+    const generated = await callPrModel(
+      buildThreadSummarySystemPrompt(),
+      buildThreadSummaryUserPrompt(transcript),
+      { maxTokens: 160 },
+    )
+    const parsed = parseModelJson(generated.content) as { title?: unknown; summary?: unknown }
+    const title = typeof parsed.title === 'string' ? parsed.title.trim().replace(/["「」『』]/g, '').slice(0, 16) : ''
+    const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : ''
+    if (!title && !summary) return
 
-  await db
-    .update(conversationThreads)
-    .set({
-      ...(title ? { title } : {}),
-      ...(summary ? { summary } : {}),
-      updatedAt: new Date(),
-    })
-    .where(eq(conversationThreads.id, threadId))
-  await writeSnapshot(runId, 'summarize_thread', { total, title, summary })
+    await db
+      .update(conversationThreads)
+      .set({
+        ...(title ? { title } : {}),
+        ...(summary ? { summary } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(conversationThreads.id, threadId))
+    span.setAttribute(OI.OUTPUT, JSON.stringify({ total, title, summary }))
+    await writeSnapshot(runId, 'summarize_thread', { total, title, summary })
+  })
 }
 
 /**
@@ -152,6 +163,19 @@ export async function getRecentThreadId(withinMs = 24 * 60 * 60 * 1000): Promise
 }
 
 export async function chatWithPr(input: { message: string; threadId?: string | null; imageUrl?: string | null }) {
+  // 根 span:整条对话编排(Phoenix 里按 session.id=threadId 聚合成会话视图)
+  return withSpan(
+    'pr.chat',
+    'AGENT',
+    { [OI.INPUT]: clip(input.message, 2000), 'pr.has_image': Boolean(input.imageUrl) },
+    rootSpan => chatWithPrInner(input, rootSpan),
+  )
+}
+
+async function chatWithPrInner(
+  input: { message: string; threadId?: string | null; imageUrl?: string | null },
+  rootSpan: Span,
+) {
   const db = await getActivitiesDb()
   const now = new Date()
   let threadId = input.threadId ?? null
@@ -193,6 +217,9 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     startedAt: now,
   })
 
+  rootSpan.setAttribute(OI.SESSION_ID, threadId)
+  rootSpan.setAttribute('pr.run_id', runId)
+
   const userMessageId = generateId('msg')
   await db.insert(conversationMessages).values({
     id: userMessageId,
@@ -207,21 +234,37 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     // ── build_context (FactLoader + FeatureBuilder + MemoryRetriever + KnowledgeRetriever) ──
     // 每个来源独立降级:RAG/记忆/健康/目标/画像任一失败都不该让对话挂掉。
     const [memoryItems, knowledge, recentMessages, recentHealth, raceGoals, companionProfile, recentActivities, latestPerType] =
-      await Promise.all([
-        listContextMemories(6).catch(() => []),
-        retrieveKnowledge(input.message, 3).catch(() => []),
-        db
-          .select()
-          .from(conversationMessages)
-          .where(eq(conversationMessages.threadId, threadId))
-          .orderBy(desc(conversationMessages.createdAt))
-          .limit(6),
-        getLatestHealthDailyMetrics(1).catch(() => []),
-        getRaceGoalContext(3).catch(() => []),
-        buildCompanionProfileContext().catch(() => null),
-        getRecentActivityContext(5).catch(() => []),
-        getLatestActivityPerType().catch(() => []),
-      ])
+      await withSpan('pr.build_context', 'CHAIN', {}, async span => {
+        const results = await Promise.all([
+          listContextMemories(6).catch(() => []),
+          retrieveKnowledge(input.message, 3).catch(() => []),
+          db
+            .select()
+            .from(conversationMessages)
+            .where(eq(conversationMessages.threadId, threadId))
+            .orderBy(desc(conversationMessages.createdAt))
+            .limit(6),
+          getLatestHealthDailyMetrics(1).catch(() => []),
+          getRaceGoalContext(3).catch(() => []),
+          buildCompanionProfileContext().catch(() => null),
+          getRecentActivityContext(5).catch(() => []),
+          getLatestActivityPerType().catch(() => []),
+        ])
+        span.setAttribute(
+          OI.OUTPUT,
+          JSON.stringify({
+            memories: results[0].length,
+            knowledge: results[1].length,
+            historyRows: results[2].length,
+            healthDays: results[3].length,
+            raceGoals: results[4].length,
+            hasProfile: Boolean(results[5]),
+            recentActivities: results[6].length,
+            latestPerType: results[7].length,
+          }),
+        )
+        return results
+      })
 
     // 历史(不含刚插入的这条)→ 原生多轮 turns(参考 Claude Code,不再压平成文本):
     // 合并连续同角色(assistant 落库失败会产生连续 user)满足 API 交替要求,首条必须是 user;
@@ -358,7 +401,16 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       answer = first.content.trim() || buildRuleBasedChatReply()
       model = first.model
       provider = first.provider
-      const firstEval = evaluateChatReply(answer, evalCtx)
+      const firstEval = await withSpan(
+        'pr.evaluate',
+        'EVALUATOR',
+        { 'pr.attempt': 1, [OI.INPUT]: clip(answer, 1500) },
+        async span => {
+          const evaluation = evaluateChatReply(answer, evalCtx)
+          span.setAttribute(OI.OUTPUT, JSON.stringify(evaluation))
+          return evaluation
+        },
+      )
       warnings = firstEval.warnings
       await writeSnapshot(runId, 'draft_response', { attempt: 1, model, provider, length: answer.length })
       await writeSnapshot(runId, 'evaluate_response', { attempt: 1, passed: firstEval.passed, warnings: firstEval.warnings })
@@ -368,7 +420,16 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
         try {
           const second = await rewrite(answer, firstEval.warnings)
           const rewritten = second.content.trim()
-          const secondEval = evaluateChatReply(rewritten, evalCtx)
+          const secondEval = await withSpan(
+            'pr.evaluate',
+            'EVALUATOR',
+            { 'pr.attempt': 2, [OI.INPUT]: clip(rewritten, 1500) },
+            async span => {
+              const evaluation = evaluateChatReply(rewritten, evalCtx)
+              span.setAttribute(OI.OUTPUT, JSON.stringify(evaluation))
+              return evaluation
+            },
+          )
           attempts = 2
           await writeSnapshot(runId, 'draft_response', { attempt: 2, model: second.model, length: rewritten.length })
           await writeSnapshot(runId, 'evaluate_response', { attempt: 2, passed: secondEval.passed, warnings: secondEval.warnings })
@@ -434,6 +495,11 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       console.warn('[pr-chat] 会话摘要失败:', (error as Error).message),
     )
 
+    rootSpan.setAttribute(OI.OUTPUT, clip(answer, 2000))
+    rootSpan.setAttribute('pr.model', model)
+    rootSpan.setAttribute('pr.attempts', attempts)
+    rootSpan.setAttribute('pr.tool_calls', toolCalls.length)
+    if (warnings.length) rootSpan.setAttribute('pr.warnings', warnings.join('；'))
     return { threadId, runId, answer, model, provider, warnings, learnedMemoryIds: [] }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -446,6 +512,8 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       .catch(() => {})
     // 对话必须有回复:即便编排出错,也返回兜底话,让微信/前端能给用户一个响应。
     const answer = buildRuleBasedChatReply()
+    rootSpan.setAttribute(OI.OUTPUT, clip(answer, 2000))
+    rootSpan.setAttribute('pr.orchestration_failed', true)
     return { threadId, runId, answer, model: 'rule-based-chat-v1', provider: 'local-rule', warnings: ['orchestration_failed'], learnedMemoryIds: [] }
   }
 }

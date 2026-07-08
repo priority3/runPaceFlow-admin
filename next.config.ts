@@ -6,7 +6,17 @@ const nextConfig: NextConfig = {
   // Reason: 这些是 server-only 原生/重型包,让 Next 运行时直接 require,不打包进 bundle。
   // node-cron: 否则 turbopack/webpack 报 EISDIR;playwright: Chromium 启动需运行时 require;
   // @libsql/fast-xml-parser: 含原生/动态依赖,external 更稳。
-  serverExternalPackages: ['node-cron', 'playwright', '@libsql/client', 'fast-xml-parser'],
+  serverExternalPackages: [
+    'node-cron',
+    'playwright',
+    '@libsql/client',
+    'fast-xml-parser',
+    // OTel/Phoenix tracing: 含原生/protobuf 依赖,让运行时直接 require,不进 webpack bundle
+    '@opentelemetry/api',
+    '@opentelemetry/resources',
+    '@opentelemetry/sdk-trace-node',
+    '@opentelemetry/exporter-trace-otlp-proto',
+  ],
 }
 
 export default nextConfig

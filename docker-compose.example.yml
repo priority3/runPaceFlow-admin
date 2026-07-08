@@ -1,11 +1,43 @@
 services:
   runpaceflow-admin:
     build: .
-    ports:
-      - '3030:3030'
+    container_name: runpaceflow-admin
+    restart: unless-stopped
+    # host 网络:admin 通过 127.0.0.1:3000 探测主站;也用 127.0.0.1:6006 发 trace 给 Phoenix
+    network_mode: host
+    depends_on:
+      - phoenix
     env_file:
       - .env
     environment:
       - PORT=3030
       - NODE_ENV=production
+      - RUNPACEFLOW_FRONTEND_URL=http://127.0.0.1:3000
+      - DATABASE_URL=file:/app/data/admin.db
+      - ACTIVITIES_DATABASE_URL=file:/app/shared/shared.db
+      # 可观测:配了就把 agent trace 发到 Phoenix;留空则 tracing 关闭(no-op,零开销)
+      - PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006
+      - PHOENIX_PROJECT_NAME=pr-agent
+    volumes:
+      - runpaceflow-admin-data:/app/data
+      - rpf_shared_data:/app/shared
+
+  # Arize Phoenix:agent trace 可视化(瀑布图 / 会话视图 / token 统计)
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: phoenix
     restart: unless-stopped
+    # 只绑本机回环:trace 里含健康数据,不裸奔公网。查看用 SSH 端口转发:
+    #   ssh -L 6006:localhost:6006 <host>  → 浏览器打开 http://localhost:6006
+    ports:
+      - '127.0.0.1:6006:6006'
+    environment:
+      - PHOENIX_WORKING_DIR=/mnt/data
+    volumes:
+      - phoenix_data:/mnt/data
+
+volumes:
+  runpaceflow-admin-data:
+  rpf_shared_data:
+    external: true
+  phoenix_data:
