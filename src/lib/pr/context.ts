@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, lt, type SQL } from 'drizzle-orm'
 
 import {
   buildActivityReviewFeatures,
@@ -360,19 +360,37 @@ function mapActivityRow(row: ActivitySummaryRow, fmt: Intl.DateTimeFormat, today
 }
 
 /**
- * 最近 N 次运动(FactLoader 之一,供对话引用真实跑步记录——此前对话只喂健康数据,
- * PR 会对"上次跑步"瞎猜)。日期按 Asia/Shanghai(与健康数据同键)。
+ * 通用运动记录查询——也是对话 agent `query_activities` 工具的执行体,
+ * 模型可按类型过滤、用 before 往更早翻页。日期按 Asia/Shanghai(与健康数据同键)。
  */
-export async function getRecentActivityContext(limit = 5): Promise<RecentActivityContext[]> {
+export async function queryActivityContext(
+  input: { type?: string; before?: string; limit?: number } = {},
+): Promise<RecentActivityContext[]> {
   const db = await getActivitiesDb()
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 5), 1), 20)
+  const conditions: SQL[] = []
+  if (input.type) conditions.push(eq(activities.type, input.type))
+  if (input.before && /^\d{4}-\d{2}-\d{2}$/.test(input.before)) {
+    // before 语义:该日期(上海时区)当天 00:00 之前,配合返回里的 date 字段即可持续往前翻
+    conditions.push(lt(activities.startTime, new Date(Date.parse(`${input.before}T00:00:00+08:00`))))
+  }
   const rows = await db
     .select(ACTIVITY_SUMMARY_COLUMNS)
     .from(activities)
+    .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(activities.startTime))
     .limit(limit)
   const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' })
   const today = fmt.format(new Date())
   return rows.map(row => mapActivityRow(row, fmt, today))
+}
+
+/**
+ * 最近 N 次运动(FactLoader 之一,供对话引用真实跑步记录——此前对话只喂健康数据,
+ * PR 会对"上次跑步"瞎猜)。
+ */
+export async function getRecentActivityContext(limit = 5): Promise<RecentActivityContext[]> {
+  return queryActivityContext({ limit })
 }
 
 /**

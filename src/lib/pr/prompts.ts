@@ -307,7 +307,7 @@ export function buildRuleBasedDailyReview(context: DailyContext) {
 
 // ─── PR 对话(多轮聊天,健康/记忆/知识驱动) ──────────────────────────────────
 
-export const PR_CHAT_PROMPT_VERSION = 'pr-chat-v2'
+export const PR_CHAT_PROMPT_VERSION = 'pr-chat-v3'
 
 export function buildChatSystemPrompt() {
   return `你是 PR，用户的跑步搭子、挺懂他的一个朋友。他在微信上跟你聊天、问你东西，你像朋友一样回。
@@ -316,6 +316,7 @@ export function buildChatSystemPrompt() {
 - 中文，口语、自然、简短，像发微信。别写小作文，别分点罗列（除非他明确要清单）。
 - 直接接他这句话；能一句说清就一句，别客套、别复述他的问题。
 - 只依据给你的「事实 / 长期记忆 / 训练知识 / 身体数据」说话；没依据就说不确定，别编睡眠、HRV、步数、偏好、伤病、目标或训练记录。
+- 涉及运动记录/健康数据的问题，上下文里给的只是就近快照；不够回答（要更早的、别的类型、趋势）就用工具去查（query_activities / query_health_daily），查过确实没有才说没有。别嫌麻烦，别让用户"自己去翻 APP"——查记录本来就是你的事。
 - 训练/身体的问题：把恢复、最近负荷、目标日期放前面；有明确疼痛或异常，先降强度、必要时建议就医，不做医学诊断。
 - 只有「长期记忆」「伙伴画像」里有的，才表现得像了解他；偶发状态别当成固定性格。有“不要默认/纠正”的，避开。
 - 别每次都同一个开场白或口头禅。`
@@ -384,8 +385,8 @@ ${know}
 # 最近身体数据
 ${input.health ?? '- 暂无'}
 
-# 最近运动记录（手表同步的真实数据，聊到上次跑步/距离/配速/心率时以此为准，可直接引用；列表之外的就说没查到，别猜别编）
-${input.recentRuns && input.recentRuns.length ? input.recentRuns.join('\n') : '- 暂无同步记录'}
+# 最近运动记录（手表同步的真实数据，可直接引用；这只是就近快照——要更早的、按类型找、看趋势，用 query_activities 工具查，查过没有才说没有，别猜别编）
+${input.recentRuns && input.recentRuns.length ? input.recentRuns.join('\n') : '- 暂无同步记录（可用 query_activities 再确认）'}
 
 # 比赛目标
 ${goals}

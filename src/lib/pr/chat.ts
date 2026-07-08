@@ -23,6 +23,7 @@ import {
 } from './prompts'
 import { getRaceGoalContext } from './race-goals'
 import { retrieveKnowledge } from './rag'
+import { executePrChatTool, PR_CHAT_TOOLS } from './tools'
 import { readImageUpload, uploadNameFromUrl } from './uploads'
 
 type ChatImage = { base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' }
@@ -274,6 +275,8 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
         memoryItems.length > 0 || (companionProfile?.trainingPreferences.length ?? 0) > 0,
       doNotAssume: companionProfile?.doNotAssume ?? [],
     }
+    // FriendPersona 带只读工具:快照不够时自己查库(每次调用写 tool_use 快照可回放)
+    const toolCalls: Array<{ name: string; input: unknown }> = []
     const persona = (constraints?: string[]) =>
       callPrModel(
         buildChatSystemPrompt(),
@@ -289,7 +292,16 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
           hasImage: images.length > 0,
           constraints,
         }),
-        { maxTokens: 500, images },
+        {
+          maxTokens: 500,
+          images,
+          tools: PR_CHAT_TOOLS,
+          executeTool: executePrChatTool,
+          onToolCall: (name, toolInput, result) => {
+            toolCalls.push({ name, input: toolInput })
+            void writeSnapshot(runId, 'tool_use', { name, input: toolInput, result: result.slice(0, 600) }).catch(() => {})
+          },
+        },
       )
 
     let answer = buildRuleBasedChatReply()
@@ -352,9 +364,10 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
         attempts,
         model,
         provider,
+        toolCalls,
       }),
     })
-    await writeSnapshot(runId, 'persist_output', { model, provider, warnings, attempts })
+    await writeSnapshot(runId, 'persist_output', { model, provider, warnings, attempts, toolCallCount: toolCalls.length })
 
     await db
       .update(agentRuns)
