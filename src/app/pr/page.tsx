@@ -32,8 +32,8 @@ const MenuIcon = ({ size = 22, className }: IconProps) => (
 const PlusIcon = ({ size = 22, className }: IconProps) => (
   <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
 )
-const PaperclipIcon = ({ size = 22, className }: IconProps) => (
-  <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+const ImageIcon = ({ size = 22, className }: IconProps) => (
+  <svg {...svgBase(size)} className={className} aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
 )
 const CameraIcon = ({ size = 22, className }: IconProps) => (
   <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
@@ -70,6 +70,8 @@ export default function PrChatPage() {
   const [uploading, setUploading] = useState(false)
   const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [attachOpen, setAttachOpen] = useState(false)
+  const [inputFocused, setInputFocused] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -140,6 +142,16 @@ export default function PrChatPage() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, sending])
+
+  // 附件菜单点外即关(容器有 backdrop-filter,fixed 遮罩会被夹在里面,改用全局监听)
+  useEffect(() => {
+    if (!attachOpen) return
+    const close = (e: PointerEvent) => {
+      if (!(e.target as HTMLElement | null)?.closest('.pr-attach')) setAttachOpen(false)
+    }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [attachOpen])
 
   async function fetchThreads(): Promise<Thread[]> {
     try {
@@ -424,51 +436,73 @@ export default function PrChatPage() {
         </div>
       </div>
 
-      {/* 毛玻璃输入区 */}
-      <div className="pr-glass absolute inset-x-0 bottom-0 z-20 px-3 pt-2.5" style={{ borderTop: '1px solid var(--pr-line)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}>
+      {/* 毛玻璃输入区:一体化胶囊(＋附件 · 输入 · 发送),聚焦整体亮 ring */}
+      <div className="pr-glass absolute inset-x-0 bottom-0 z-20 px-3 pt-2.5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}>
         {authError && (
-          <div className="pr-pop mb-2 rounded-lg px-3 py-2 text-xs" style={{ background: 'var(--pr-sel)', color: 'var(--pr-text-2)' }}>
+          <div className="pr-pop mb-2 rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--pr-sel)', color: 'var(--pr-text-2)' }}>
             登录已失效,请重新从推送链接进入。
           </div>
         )}
-        {pendingImageUrl && (
-          <div className="pr-pop mb-2 flex items-center gap-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={imgSrc(pendingImageUrl)} alt="待发送" className="h-14 w-14 rounded-xl object-cover" style={{ border: '1px solid var(--pr-line-strong)' }} />
-            <button type="button" onClick={() => setPendingImageUrl(null)} className="pr-tap flex items-center gap-1 rounded-full px-2 py-1 text-xs" style={{ color: 'var(--pr-text-2)', background: 'var(--pr-sel)' }}>
-              <CloseIcon size={13} />移除
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void uploadFile(f); e.target.value = '' }} />
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void uploadFile(f); e.target.value = '' }} />
+        <div className="pr-composer flex flex-col rounded-[26px]" style={inputFocused ? { borderColor: 'var(--pr-accent)', boxShadow: '0 0 0 3px rgba(163,230,53,.18)' } : undefined}>
+          {pendingImageUrl && (
+            <div className="flex px-3 pt-3">
+              <div className="pr-pop relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imgSrc(pendingImageUrl)} alt="待发送" className="h-16 w-16 rounded-xl object-cover" style={{ border: '1px solid var(--pr-line-strong)' }} />
+                <button type="button" onClick={() => setPendingImageUrl(null)} className="pr-tap absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full" style={{ background: 'var(--pr-user-bg)', color: 'var(--pr-user-text)' }} aria-label="移除图片">
+                  <CloseIcon size={11} />
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="flex items-end gap-1 p-1.5">
+            <div className="pr-attach relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setAttachOpen(open => !open)}
+                disabled={uploading || sending}
+                className={`pr-tap pr-plus flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40 ${attachOpen ? 'pr-plus-open' : ''}`}
+                style={{ color: 'var(--pr-text-2)' }}
+                aria-label="添加图片"
+              >
+                {uploading ? <Spinner size={19} /> : <PlusIcon size={20} />}
+              </button>
+              {attachOpen && (
+                <div className="pr-pop pr-menu absolute bottom-11 left-0 flex w-32 flex-col rounded-2xl p-1" style={{ background: 'var(--pr-bg)', border: '1px solid var(--pr-line)', boxShadow: '0 8px 28px rgba(0,0,0,.16)' }}>
+                  <button type="button" onClick={() => { setAttachOpen(false); cameraRef.current?.click() }} className="pr-tap flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm" style={{ color: 'var(--pr-text)' }}>
+                    <CameraIcon size={17} className="shrink-0" />拍照
+                  </button>
+                  <button type="button" onClick={() => { setAttachOpen(false); fileRef.current?.click() }} className="pr-tap flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm" style={{ color: 'var(--pr-text)' }}>
+                    <ImageIcon size={17} className="shrink-0" />相册
+                  </button>
+                </div>
+              )}
+            </div>
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={e => { setInput(e.target.value); autoGrow(e.target) }}
+              onKeyDown={onKeyDown}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
+              rows={1}
+              placeholder="和 PR 说点什么…"
+              className="pr-input pr-scroll max-h-32 min-h-[36px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[15px] outline-none"
+              style={{ color: 'var(--pr-text)' }}
+            />
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={!canSend}
+              className="pr-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+              style={{ background: 'var(--pr-accent)', color: 'var(--pr-accent-ink)' }}
+              aria-label="发送"
+            >
+              {sending ? <Spinner size={18} /> : <SendIcon size={18} />}
             </button>
           </div>
-        )}
-        <div className="flex items-end gap-1.5">
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void uploadFile(f); e.target.value = '' }} />
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void uploadFile(f); e.target.value = '' }} />
-          <button type="button" onClick={() => cameraRef.current?.click()} disabled={uploading || sending} className="pr-tap mb-1 shrink-0 rounded-full p-2 disabled:opacity-40" style={{ color: 'var(--pr-text-2)' }} aria-label="拍照">
-            <CameraIcon />
-          </button>
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading || sending} className="pr-tap mb-1 shrink-0 rounded-full p-2 disabled:opacity-40" style={{ color: 'var(--pr-text-2)' }} aria-label="上传图片">
-            {uploading ? <Spinner /> : <PaperclipIcon />}
-          </button>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={e => { setInput(e.target.value); autoGrow(e.target) }}
-            onKeyDown={onKeyDown}
-            rows={1}
-            placeholder="和 PR 说点什么…"
-            className="pr-input pr-scroll max-h-32 min-h-[42px] flex-1 resize-none rounded-3xl px-4 py-2.5 text-[15px] outline-none"
-            style={{ background: 'var(--pr-sel)', color: 'var(--pr-text)', border: '1px solid var(--pr-line)' }}
-          />
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={!canSend}
-            className="pr-send mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-            style={{ background: 'var(--pr-accent)', color: 'var(--pr-accent-ink)' }}
-            aria-label="发送"
-          >
-            {sending ? <Spinner size={18} /> : <SendIcon />}
-          </button>
         </div>
       </div>
     </div>
@@ -515,8 +549,11 @@ function PrThemeStyle() {
 .pr-backdrop{background:rgba(0,0,0,.32);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);transition:opacity .3s ease}
 .pr-drawer{transition:transform .38s var(--pr-ease);box-shadow:8px 0 32px rgba(0,0,0,.14)}
 .pr .pr-input::placeholder{color:var(--pr-muted)}
-.pr .pr-input{transition:border-color .2s,box-shadow .2s}
-.pr .pr-input:focus{border-color:var(--pr-accent);box-shadow:0 0 0 3px rgba(163,230,53,.22)}
+.pr .pr-composer{background:var(--pr-sel);border:1px solid var(--pr-line);transition:border-color .25s,box-shadow .25s}
+.pr .pr-plus{transition:transform .3s var(--pr-spring),opacity .18s}
+.pr .pr-plus-open{transform:rotate(45deg)}
+.pr .pr-plus-open:active{transform:rotate(45deg) scale(.9)}
+.pr-menu{transform-origin:0 100%}
 .pr .pr-tap{transition:transform .25s var(--pr-spring),opacity .18s,background-color .18s}
 .pr .pr-tap:active{transform:scale(.9)}
 .pr .pr-row{animation:prRise .4s var(--pr-ease) both;transition:background-color .2s,transform .25s var(--pr-spring)}
