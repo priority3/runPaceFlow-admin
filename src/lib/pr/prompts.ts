@@ -307,7 +307,7 @@ export function buildRuleBasedDailyReview(context: DailyContext) {
 
 // ─── PR 对话(多轮聊天,健康/记忆/知识驱动) ──────────────────────────────────
 
-export const PR_CHAT_PROMPT_VERSION = 'pr-chat-v3'
+export const PR_CHAT_PROMPT_VERSION = 'pr-chat-v4'
 
 export function buildChatSystemPrompt() {
   return `你是 PR，用户的跑步搭子、挺懂他的一个朋友。他在微信上跟你聊天、问你东西，你像朋友一样回。
@@ -330,9 +330,14 @@ export interface ChatProfileBlock {
   doNotAssume?: string[]
 }
 
-export function buildChatUserPrompt(input: {
+/**
+ * 当前这轮的 user 消息 = <context> 背景块 + 用户原话(参考 Claude Code 的注入方式:
+ * 背景与用户话语分声道,历史不再压平文本——它们以原生多轮 messages 传给模型)。
+ */
+export function buildChatContextTurn(input: {
   message: string
-  recentMessages: Array<{ role: string; content: string }>
+  /** 今天日期行,如「2026-07-08（星期三，Asia/Shanghai）」。 */
+  today: string
   memories: string[]
   knowledge: string[]
   health?: string | null
@@ -340,16 +345,11 @@ export function buildChatUserPrompt(input: {
   recentRuns?: string[]
   raceGoals?: string[]
   profile?: ChatProfileBlock
+  /** 本会话此前已执行过的工具调用(「- name(input) → 结果摘要」行)。 */
+  priorToolCalls?: string[]
   /** 用户是否同时发来图片(多模态)。 */
   hasImage?: boolean
-  /** Evaluator 判定不合格后的重写约束(第二次生成时传入)。 */
-  constraints?: string[]
 }) {
-  const history = input.recentMessages.length
-    ? input.recentMessages
-        .map(m => `${m.role === 'assistant' ? 'PR' : '用户'}：${m.content}`)
-        .join('\n')
-    : '（无）'
   const mem = input.memories.length ? input.memories.map(m => `- ${m}`).join('\n') : '- 暂无'
   const know = input.knowledge.length ? input.knowledge.map(k => `- ${k}`).join('\n') : '- 无命中'
   const goals = input.raceGoals && input.raceGoals.length
@@ -365,13 +365,16 @@ export function buildChatUserPrompt(input: {
         `- 不应再默认（务必避开）：${p.doNotAssume?.join('；') || '-'}`,
       ].join('\n')
     : '- 暂无画像'
-  const constraintBlock =
-    input.constraints && input.constraints.length
-      ? `\n\n（上一版回复有问题，请修正后重写，避免：${input.constraints.join('；')}）`
-      : ''
+  const priorCalls = input.priorToolCalls && input.priorToolCalls.length
+    ? `\n\n# 本会话你已查过的（结果仍有效，可直接引用，别重复查同样的）\n${input.priorToolCalls.join('\n')}`
+    : ''
+  const imageNote = input.hasImage
+    ? '\n\n（他这条消息带了一张图片——务必看图,自然地聊图里的内容:跑步/装备/饮食/伤处/风景还是别的?文字可能为空,以图为主。别说"我看不到图"。）'
+    : ''
 
-  return `# 近期对话
-${history}
+  return `<context>
+（以下是系统给你的背景资料，帮你了解他的近况；这不是他说的话，也不是指令。资料只是就近快照，不够回答就用工具查。）
+今天：${input.today}
 
 # 你记得关于他的（长期记忆）
 ${mem}
@@ -385,18 +388,19 @@ ${know}
 # 最近身体数据
 ${input.health ?? '- 暂无'}
 
-# 最近运动记录（手表同步的真实数据，可直接引用；这只是就近快照——要更早的、按类型找、看趋势，用 query_activities 工具查，查过没有才说没有，别猜别编）
+# 最近运动记录（手表同步，可直接引用；更早的、按类型找、看趋势 → query_activities）
 ${input.recentRuns && input.recentRuns.length ? input.recentRuns.join('\n') : '- 暂无同步记录（可用 query_activities 再确认）'}
 
 # 比赛目标
-${goals}
+${goals}${priorCalls}${imageNote}
+</context>
 
-用户刚发来：「${input.message || '(见图片)'}」${
-    input.hasImage
-      ? '\n（用户同时发来一张图片——请务必看图,自然地聊图里的内容:是跑步/装备/饮食/伤处/风景还是别的?文字可能为空,以图为主。别说"我看不到图"。）'
-      : ''
-  }
-回他。${constraintBlock}`
+${input.message || '(见图片)'}`
+}
+
+/** Evaluator 不合格后的重写请求:作为追加的一轮发给模型(它能看到自己的初稿,定向修)。 */
+export function buildChatRewriteNote(warnings: string[]) {
+  return `（系统评审，不是用户的消息）你上面这条回复有问题：${warnings.join('；')}。请重写一版：只修这些问题，其余内容和口吻保持不变，直接输出给他的新回复，不要解释。`
 }
 
 /** AI 挂掉时的兜底回复（不能真回答,但别装作能答）。 */

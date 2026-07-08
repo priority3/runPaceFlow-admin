@@ -13,10 +13,11 @@ import { buildCompanionProfileContext, getLatestActivityPerType, getRecentActivi
 import { evaluateChatReply, type ChatEvalContext } from './evaluator'
 import { getLatestHealthDailyMetrics } from './health'
 import { applyMemoryPatch, curateMemoryPatches, listContextMemories } from './memory'
-import { callPrModel, parseModelJson } from './model'
+import { callPrModel, parseModelJson, type PrModelMessage } from './model'
 import {
+  buildChatContextTurn,
+  buildChatRewriteNote,
   buildChatSystemPrompt,
-  buildChatUserPrompt,
   buildRuleBasedChatReply,
   buildThreadSummarySystemPrompt,
   buildThreadSummaryUserPrompt,
@@ -222,11 +223,40 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
         getLatestActivityPerType().catch(() => []),
       ])
 
-    // 历史(不含刚插入的这条),按时间正序;新消息单独作为"刚发来"传给模型。
-    const history = recentMessages
-      .filter(message => message.id !== userMessageId)
-      .reverse()
-      .map(message => ({ role: message.role, content: message.content }))
+    // 历史(不含刚插入的这条)→ 原生多轮 turns(参考 Claude Code,不再压平成文本):
+    // 合并连续同角色(assistant 落库失败会产生连续 user)满足 API 交替要求,首条必须是 user;
+    // 同时从历史 assistant 的 context_json 收集已执行过的工具调用,防止跨轮重复查。
+    const historyRows = recentMessages.filter(message => message.id !== userMessageId).reverse()
+    const turns: PrModelMessage[] = []
+    const priorToolCalls: string[] = []
+    for (const row of historyRows) {
+      const role = row.role === 'assistant' ? ('assistant' as const) : ('user' as const)
+      if (role === 'assistant' && row.contextJson) {
+        try {
+          const ctx = JSON.parse(row.contextJson) as {
+            toolCalls?: Array<{ name: string; input: unknown; resultPreview?: string }>
+          }
+          for (const call of ctx.toolCalls ?? []) {
+            priorToolCalls.push(
+              `- ${call.name}(${JSON.stringify(call.input)})${call.resultPreview ? ` → ${call.resultPreview}` : ''}`,
+            )
+          }
+        } catch {
+          /* 老消息无此结构,忽略 */
+        }
+      }
+      const prev = turns[turns.length - 1]
+      if (prev && prev.role === role) prev.content += `\n${row.content}`
+      else turns.push({ role, content: row.content })
+    }
+    while (turns.length && turns[0].role === 'assistant') turns.shift()
+    const historyForCuration = historyRows.map(row => ({ role: row.role, content: row.content }))
+
+    // 今天日期(Asia/Shanghai)——不给这行,模型的所有时间推理只能靠上下文里的日期反猜
+    const todayDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+    const todayWeekday = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }).format(new Date())
+    const today = `${todayDate}（${todayWeekday}，Asia/Shanghai）`
+
     const h = recentHealth[0]
     const healthLine = h
       ? `- ${h.date}：睡 ${h.sleepMinutes ?? '-'} 分、静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}、步数 ${h.steps ?? '-'}、恢复 ${h.recoveryLabel}`
@@ -257,10 +287,29 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
         }
       : undefined
 
+    // 当前这轮 = <context> 背景块 + 用户原话;若历史末尾已是 user(上一轮 assistant 落库失败),合并进去保持交替
+    const contextTurn = buildChatContextTurn({
+      message: input.message,
+      today,
+      memories: memoryItems.map(memory => memory.content),
+      knowledge: knowledge.map(item => item.content.slice(0, 220)),
+      health: healthLine,
+      recentRuns: runLines,
+      raceGoals: goalLines,
+      profile: profileBlock,
+      priorToolCalls: priorToolCalls.slice(-4),
+      hasImage: images.length > 0,
+    })
+    const lastTurn = turns[turns.length - 1]
+    if (lastTurn && lastTurn.role === 'user') lastTurn.content += `\n\n${contextTurn}`
+    else turns.push({ role: 'user', content: contextTurn })
+
     await writeSnapshot(runId, 'build_context', {
       memoryIds: memoryItems.map(memory => memory.id),
       knowledgeCount: knowledge.length,
-      historyTurns: history.length,
+      historyTurns: historyRows.length,
+      today,
+      priorToolCallCount: Math.min(priorToolCalls.length, 4),
       hasHealth: Boolean(h),
       recentActivityCount: recentActivities.length,
       lastRunDaysAgo: lastRun?.daysAgo ?? null,
@@ -276,32 +325,25 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       doNotAssume: companionProfile?.doNotAssume ?? [],
     }
     // FriendPersona 带只读工具:快照不够时自己查库(每次调用写 tool_use 快照可回放)
-    const toolCalls: Array<{ name: string; input: unknown }> = []
-    const persona = (constraints?: string[]) =>
+    const toolCalls: Array<{ name: string; input: unknown; resultPreview?: string }> = []
+    const modelOpts = {
+      maxTokens: 500,
+      images,
+      tools: PR_CHAT_TOOLS,
+      executeTool: executePrChatTool,
+      onToolCall: (name: string, toolInput: unknown, result: string) => {
+        toolCalls.push({ name, input: toolInput, resultPreview: result.slice(0, 300) })
+        void writeSnapshot(runId, 'tool_use', { name, input: toolInput, result: result.slice(0, 600) }).catch(() => {})
+      },
+    }
+    const persona = () => callPrModel(buildChatSystemPrompt(), turns, modelOpts)
+    // 重写 = 追加一轮(assistant 初稿 + 系统评审),模型看着自己写的定向修,而不是丢稿盲写。
+    // images 会附着到最后一条 user(评审轮),模型重写时仍看得到图。
+    const rewrite = (draft: string, rewriteWarnings: string[]) =>
       callPrModel(
         buildChatSystemPrompt(),
-        buildChatUserPrompt({
-          message: input.message,
-          recentMessages: history,
-          memories: memoryItems.map(memory => memory.content),
-          knowledge: knowledge.map(item => item.content.slice(0, 220)),
-          health: healthLine,
-          recentRuns: runLines,
-          raceGoals: goalLines,
-          profile: profileBlock,
-          hasImage: images.length > 0,
-          constraints,
-        }),
-        {
-          maxTokens: 500,
-          images,
-          tools: PR_CHAT_TOOLS,
-          executeTool: executePrChatTool,
-          onToolCall: (name, toolInput, result) => {
-            toolCalls.push({ name, input: toolInput })
-            void writeSnapshot(runId, 'tool_use', { name, input: toolInput, result: result.slice(0, 600) }).catch(() => {})
-          },
-        },
+        [...turns, { role: 'assistant', content: draft }, { role: 'user', content: buildChatRewriteNote(rewriteWarnings) }],
+        modelOpts,
       )
 
     let answer = buildRuleBasedChatReply()
@@ -322,9 +364,9 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       await writeSnapshot(runId, 'evaluate_response', { attempt: 1, passed: firstEval.passed, warnings: firstEval.warnings })
 
       if (!firstEval.passed) {
-        // Evaluator 不合格 → FriendPersona 带约束重写一次(doc: 最多重试一次)。
+        // Evaluator 不合格 → 把初稿和评审意见作为追加轮次让模型定向重写(最多一次)。
         try {
-          const second = await persona(firstEval.warnings)
+          const second = await rewrite(answer, firstEval.warnings)
           const rewritten = second.content.trim()
           const secondEval = evaluateChatReply(rewritten, evalCtx)
           attempts = 2
@@ -383,7 +425,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
     // ── curate_memory (MemoryCurator, LLM 蒸馏) ──
     // 回复落库后作为后台任务跑:既满足"输出之后再固化记忆"(不污染当前回复),又不让
     // 第二次模型调用拖慢用户拿到回复(微信/前端都不等它)。产出一律候选,晋升靠确认或多证据。
-    void curateChatMemoryInBackground(runId, userMessageId, input.message, history).catch(error =>
+    void curateChatMemoryInBackground(runId, userMessageId, input.message, historyForCuration).catch(error =>
       console.warn('[pr-chat] 后台记忆蒸馏失败:', (error as Error).message),
     )
 

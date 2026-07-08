@@ -46,8 +46,15 @@ export interface PrModelToolSpec {
   inputSchema: Record<string, unknown>
 }
 
+/** 原生多轮消息(参考 Claude Code:历史用真实 turns,不压成文本塞单条 user)。 */
+export interface PrModelMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export interface PrModelCallOptions {
   maxTokens?: number
+  /** 图片附着到最后一条 user 消息(即当前这轮)。 */
   images?: PrModelImage[]
   tools?: PrModelToolSpec[]
   /** 工具执行体;与 tools 同时提供才启用 tool use。 */
@@ -60,12 +67,13 @@ export interface PrModelCallOptions {
 
 export async function callPrModel(
   system: string,
-  user: string,
+  input: string | PrModelMessage[],
   opts: PrModelCallOptions = {},
 ): Promise<PrModelResult> {
   const settings = await getRuntimeSettings({ force: true })
   const maxTokens = opts.maxTokens ?? 900
   const images = opts.images ?? []
+  const turns: PrModelMessage[] = typeof input === 'string' ? [{ role: 'user', content: input }] : input
 
   if (settings.ANTHROPIC_API_KEY) {
     const model = settings.PR_REVIEW_MODEL || settings.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL
@@ -74,18 +82,27 @@ export async function callPrModel(
       ...(settings.ANTHROPIC_BASE_URL && { baseURL: settings.ANTHROPIC_BASE_URL }),
       defaultHeaders: { 'anthropic-beta': ANTHROPIC_BETA },
     })
-    // 有图片时组多模态 content 块(图在前、文本在后),否则用纯文本。
-    const content = images.length
-      ? [
-          ...images.map(img => ({
-            type: 'image' as const,
-            source: { type: 'base64' as const, media_type: img.mediaType, data: img.base64 },
-          })),
-          { type: 'text' as const, text: user },
-        ]
-      : user
+
+    // 图片附着到最后一条 user 消息(图在前、文本在后),其余轮次纯文本。
+    const lastUserIndex = turns.reduce((last, turn, i) => (turn.role === 'user' ? i : last), -1)
+    const messages: Anthropic.MessageParam[] = turns.map((turn, i) => {
+      if (turn.role === 'user' && i === lastUserIndex && images.length) {
+        return {
+          role: 'user' as const,
+          content: [
+            ...images.map(img => ({
+              type: 'image' as const,
+              source: { type: 'base64' as const, media_type: img.mediaType, data: img.base64 },
+            })),
+            { type: 'text' as const, text: turn.content },
+          ],
+        }
+      }
+      return { role: turn.role, content: turn.content }
+    })
 
     let useTools = Boolean(opts.tools?.length && opts.executeTool)
+    let useCache = true
     const tools: Anthropic.Tool[] | undefined = useTools
       ? opts.tools!.map(tool => ({
           name: tool.name,
@@ -94,7 +111,17 @@ export async function callPrModel(
         }))
       : undefined
     const maxToolRounds = opts.maxToolRounds ?? 3
-    const messages: Anthropic.MessageParam[] = [{ role: 'user', content }]
+
+    // system 挂缓存断点:tools + system 是跨轮/跨会话的稳定前缀,命中后按 0.1 倍计费。
+    const buildParams = (): Anthropic.MessageCreateParamsNonStreaming => ({
+      model,
+      max_tokens: maxTokens,
+      system: useCache
+        ? [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }]
+        : system,
+      messages,
+      ...(useTools && tools ? { tools } : {}),
+    })
 
     // Agent 循环:模型要调工具 → 本地执行 → 结果喂回 → 直到产出正式回答。
     // 注意:消息里一旦出现 tool_use 块,后续请求必须继续带 tools 参数,
@@ -102,19 +129,24 @@ export async function callPrModel(
     for (let round = 0; round <= maxToolRounds + 1; round++) {
       let response: Anthropic.Message
       try {
-        response = await client.messages.create({
-          model,
-          max_tokens: maxTokens,
-          system,
-          messages,
-          ...(useTools ? { tools } : {}),
-        })
+        response = await client.messages.create(buildParams())
       } catch (error) {
-        // Reason: 第三方网关可能不透传 tools 字段;首轮失败就降级为无工具模式,保底能聊
-        if (useTools && round === 0) {
+        // Reason: 第三方网关可能不透传 cache_control / tools;仅首轮逐级降级,保底能聊
+        if (round === 0 && useCache) {
+          console.warn('[pr-model] 带 cache_control 调用失败,降级重试:', (error as Error).message)
+          useCache = false
+          try {
+            response = await client.messages.create(buildParams())
+          } catch (retryError) {
+            if (!useTools) throw retryError
+            console.warn('[pr-model] 带 tools 调用仍失败,降级为无工具模式:', (retryError as Error).message)
+            useTools = false
+            response = await client.messages.create(buildParams())
+          }
+        } else if (round === 0 && useTools) {
           console.warn('[pr-model] 带 tools 调用失败,降级为无工具模式:', (error as Error).message)
           useTools = false
-          response = await client.messages.create({ model, max_tokens: maxTokens, system, messages })
+          response = await client.messages.create(buildParams())
         } else {
           throw error
         }
@@ -154,6 +186,7 @@ export async function callPrModel(
     throw new Error('Tool loop exhausted without a final answer')
   }
 
+  // OpenAI 兼容路径:多轮 turns 一一映射;不支持 tools/图片/缓存(网关实际走 Anthropic)。
   if (settings.OPENAI_API_KEY) {
     const model = settings.PR_REVIEW_MODEL || settings.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
     const client = new OpenAI({
@@ -161,10 +194,15 @@ export async function callPrModel(
       ...(settings.OPENAI_BASE_URL && { baseURL: settings.OPENAI_BASE_URL }),
     })
     if (settings.OPENAI_API_FORMAT === 'responses') {
+      // Responses 的多轮 input 类型要求完整 ResponseOutputMessage;该路径不承载对话,多轮时降级为转写文本
+      const transcript =
+        turns.length === 1
+          ? turns[0].content
+          : turns.map(turn => `[${turn.role}] ${turn.content}`).join('\n\n')
       const response = await client.responses.create({
         model,
         instructions: system,
-        input: [{ role: 'user', content: [{ type: 'input_text', text: user }] }],
+        input: [{ role: 'user', content: [{ type: 'input_text', text: transcript }] }],
         store: false,
       })
       const message = response.output.find(item => item.type === 'message')
@@ -177,7 +215,7 @@ export async function callPrModel(
       max_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: user },
+        ...turns.map(turn => ({ role: turn.role, content: turn.content })),
       ],
     })
     const content = response.choices[0]?.message?.content
