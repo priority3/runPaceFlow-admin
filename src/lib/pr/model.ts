@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 
-import { clip, OI, withSpan } from '@/lib/observability/trace'
+import { clip, isTracingEnabled, OI, withSpan } from '@/lib/observability/trace'
 import { getRuntimeSettings } from '@/lib/runtime-config'
 
 /**
@@ -144,8 +144,13 @@ export async function callPrModel(
         2000,
       )
 
+    // 仅当疑似"请求参数被拒"(HTTP 400)时才逐级降级:网关不透传 cache_control/tools 就是 400。
+    // 429/401/5xx/网络错误降级也没用,反而放大请求量、掩盖真因,应直接抛(SDK 已对瞬时错误自重试)。
+    const isBadRequest = (error: unknown) => (error as { status?: number } | null)?.status === 400
+
     let interimText = '' // 工具轮里模型顺带说的话;空响应兜底时好过整句丢掉
-    let emptyRetried = false
+    let emptyRetries = 0
+    const MAX_EMPTY_RETRIES = 2 // 容忍网关偶发空响应的突发,但有上限保证终止
     for (let round = 0; round <= maxToolRounds + 1; round++) {
       const response: Anthropic.Message = await withSpan(
         'llm.claude',
@@ -153,27 +158,26 @@ export async function callPrModel(
         {
           [OI.LLM_MODEL]: model,
           'llm.round': round,
-          [OI.INPUT]: previewMessage(messages[messages.length - 1]),
+          [OI.INPUT]: isTracingEnabled() ? previewMessage(messages[messages.length - 1]) : '',
         },
         async span => {
           let res: Anthropic.Message
           try {
             res = await client.messages.create(buildParams())
           } catch (error) {
-            // Reason: 第三方网关可能不透传 cache_control / tools;仅首轮逐级降级,保底能聊
-            if (round === 0 && useCache) {
-              console.warn('[pr-model] 带 cache_control 调用失败,降级重试:', (error as Error).message)
+            if (round === 0 && useCache && isBadRequest(error)) {
+              console.warn('[pr-model] 400,疑似 cache_control 不被支持,去缓存重试:', (error as Error).message)
               useCache = false
               try {
                 res = await client.messages.create(buildParams())
               } catch (retryError) {
-                if (!useTools) throw retryError
-                console.warn('[pr-model] 带 tools 调用仍失败,降级为无工具模式:', (retryError as Error).message)
+                if (!useTools || !isBadRequest(retryError)) throw retryError
+                console.warn('[pr-model] 仍 400,疑似 tools 不被支持,去工具重试:', (retryError as Error).message)
                 useTools = false
                 res = await client.messages.create(buildParams())
               }
-            } else if (round === 0 && useTools) {
-              console.warn('[pr-model] 带 tools 调用失败,降级为无工具模式:', (error as Error).message)
+            } else if (round === 0 && useTools && isBadRequest(error)) {
+              console.warn('[pr-model] 400,疑似 tools 不被支持,去工具重试:', (error as Error).message)
               useTools = false
               res = await client.messages.create(buildParams())
             } else {
@@ -187,15 +191,17 @@ export async function callPrModel(
           if (usage?.output_tokens != null) span.setAttribute(OI.LLM_TOKENS_COMPLETION, usage.output_tokens)
           if (usage?.cache_read_input_tokens != null) span.setAttribute(OI.LLM_TOKENS_CACHE_READ, usage.cache_read_input_tokens)
           span.setAttribute('llm.stop_reason', res.stop_reason ?? '')
-          span.setAttribute(
-            OI.OUTPUT,
-            clip(
-              res.content
-                .map(block => (block.type === 'text' ? block.text : `[${block.type}${block.type === 'tool_use' ? `:${block.name}` : ''}]`))
-                .join('\n'),
-              2000,
-            ),
-          )
+          if (span.isRecording()) {
+            span.setAttribute(
+              OI.OUTPUT,
+              clip(
+                res.content
+                  .map(block => (block.type === 'text' ? block.text : `[${block.type}${block.type === 'tool_use' ? `:${block.name}` : ''}]`))
+                  .join('\n'),
+                2000,
+              ),
+            )
+          }
           return res
         },
       )
@@ -220,10 +226,10 @@ export async function callPrModel(
               result = await withSpan(
                 `tool.${block.name}`,
                 'TOOL',
-                { [OI.TOOL_NAME]: block.name, [OI.INPUT]: clip(block.input, 1000) },
+                { [OI.TOOL_NAME]: block.name, [OI.INPUT]: isTracingEnabled() ? clip(block.input, 1000) : '' },
                 async span => {
                   const output = await opts.executeTool!(block.name, block.input)
-                  span.setAttribute(OI.OUTPUT, clip(output, 2000))
+                  if (span.isRecording()) span.setAttribute(OI.OUTPUT, clip(output, 2000))
                   return output
                 },
               )
@@ -246,11 +252,12 @@ export async function callPrModel(
         return { content: textBlock.text, model, provider: 'claude' }
       }
 
-      // 空响应(既无文本也无工具块,网关/模型偶发抽风):原样重试一次;再空用工具轮攒的文本兜底
-      if (!emptyRetried) {
-        emptyRetried = true
+      // 空响应(既无文本也无工具块,网关/模型偶发抽风):重试(累计上限内,round-- 不占工具轮);
+      // 超限用工具轮攒的文本兜底,再没有才抛。
+      if (emptyRetries < MAX_EMPTY_RETRIES) {
+        emptyRetries++
         round--
-        console.warn('[pr-model] 空响应,重试一次 (stop=%s)', response.stop_reason)
+        console.warn('[pr-model] 空响应,重试 (%d/%d, stop=%s)', emptyRetries, MAX_EMPTY_RETRIES, response.stop_reason)
         continue
       }
       if (interimText) return { content: interimText, model, provider: 'claude' }
@@ -258,6 +265,8 @@ export async function callPrModel(
         `No text content in Claude response (stop=${response.stop_reason}, blocks=[${response.content.map(block => block.type).join(',')}])`,
       )
     }
+    // 工具轮用尽仍没拿到正式回答:优先返回途中攒的文本(镜像空响应兜底),而不是直接抛。
+    if (interimText) return { content: interimText, model, provider: 'claude' }
     throw new Error('Tool loop exhausted without a final answer')
   }
 

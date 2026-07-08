@@ -22,6 +22,15 @@ export const OI = {
 
 export type OISpanKind = 'AGENT' | 'CHAIN' | 'LLM' | 'TOOL' | 'EVALUATOR' | 'RETRIEVER'
 
+// otel 初始化成功后置 true;调用方据此跳过仅用于 trace 的预览计算,让"未开启"真的零额外开销。
+let tracingEnabled = false
+export function setTracingEnabled() {
+  tracingEnabled = true
+}
+export function isTracingEnabled() {
+  return tracingEnabled
+}
+
 const tracer = trace.getTracer('pr-agent')
 
 /** 截断长值:trace 里放预览,不放大对象全文(图片 base64 绝不入 trace)。 */

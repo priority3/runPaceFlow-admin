@@ -1,4 +1,4 @@
-import { type Span } from '@opentelemetry/api'
+import { SpanStatusCode, type Span } from '@opentelemetry/api'
 import { desc, eq, sql } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
@@ -430,10 +430,11 @@ async function chatWithPrInner(
               return evaluation
             },
           )
-          attempts = 2
           await writeSnapshot(runId, 'draft_response', { attempt: 2, model: second.model, length: rewritten.length })
           await writeSnapshot(runId, 'evaluate_response', { attempt: 2, passed: secondEval.passed, warnings: secondEval.warnings })
           if (rewritten) {
+            // 仅当重写真的产出内容、被采用时才算第二次尝试;空重写沿用初版,attempts 仍为 1
+            attempts = 2
             answer = rewritten
             model = second.model
             provider = second.provider
@@ -510,10 +511,14 @@ async function chatWithPrInner(
       .set({ status: 'failed', errorMessage: message, completedAt: new Date(), updatedAt: new Date() })
       .where(eq(agentRuns.id, runId))
       .catch(() => {})
+    // 编排失败虽被吞(仍返回兜底话),但要在 trace 里标成 ERROR + 记异常,
+    // 否则 Phoenix 里失败对话与成功对话无法区分——这正是可观测要抓的场景。
+    rootSpan.recordException(error as Error)
+    rootSpan.setStatus({ code: SpanStatusCode.ERROR, message })
+    rootSpan.setAttribute('pr.orchestration_failed', true)
     // 对话必须有回复:即便编排出错,也返回兜底话,让微信/前端能给用户一个响应。
     const answer = buildRuleBasedChatReply()
     rootSpan.setAttribute(OI.OUTPUT, clip(answer, 2000))
-    rootSpan.setAttribute('pr.orchestration_failed', true)
     return { threadId, runId, answer, model: 'rule-based-chat-v1', provider: 'local-rule', warnings: ['orchestration_failed'], learnedMemoryIds: [] }
   }
 }

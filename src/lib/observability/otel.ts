@@ -9,6 +9,8 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BatchSpanProcessor, NodeTracerProvider } from '@opentelemetry/sdk-trace-node'
 
+import { setTracingEnabled } from './trace'
+
 export function initOtel() {
   const endpoint = process.env.PHOENIX_COLLECTOR_ENDPOINT
   if (!endpoint) {
@@ -29,5 +31,20 @@ export function initOtel() {
     ],
   })
   provider.register()
+  setTracingEnabled()
+
+  // BatchSpanProcessor 默认缓冲 5s;部署/重启频繁,不 flush 会丢掉在途 span。
+  // Reason: 收到终止信号时先 shutdown(会 flush)再退出,保住最后几条 trace。
+  let shuttingDown = false
+  const flushAndExit = (signal: NodeJS.Signals) => {
+    if (shuttingDown) return
+    shuttingDown = true
+    provider
+      .shutdown()
+      .catch(error => console.warn('[otel] shutdown flush 失败:', (error as Error).message))
+      .finally(() => process.kill(process.pid, signal))
+  }
+  process.once('SIGTERM', flushAndExit)
+  process.once('SIGINT', flushAndExit)
   console.log(`[otel] tracing 已启用 → ${endpoint} (project: ${project})`)
 }

@@ -315,11 +315,12 @@ export interface RecentActivityContext {
   avgHeartRate: number | null
 }
 
-/** 秒/公里 → 5'29" 文本。 */
+/** 秒/公里 → 5'29" 文本。先四舍五入到整秒再拆分,避免独立取整出现 5'60"。 */
 function formatPace(secPerKm: number | null): string | null {
   if (!secPerKm || !Number.isFinite(secPerKm) || secPerKm <= 0) return null
-  const minutes = Math.floor(secPerKm / 60)
-  const seconds = Math.round(secPerKm % 60)
+  const total = Math.round(secPerKm)
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
   return `${minutes}'${String(seconds).padStart(2, '0')}"`
 }
 
@@ -346,8 +347,9 @@ function mapActivityRow(row: ActivitySummaryRow, fmt: Intl.DateTimeFormat, today
   const date = fmt.format(row.startTime)
   const daysAgo = Math.max(0, Math.round((Date.parse(today) - Date.parse(date)) / 86_400_000))
   const distanceKm = row.distance / 1000
-  // Reason: Keep 摘要有时缺 averagePace,用距离/时长推导,避免明明有数据却答"没存配速"
-  const paceSecPerKm = row.averagePace ?? (distanceKm > 0 ? row.duration / distanceKm : null)
+  // Reason: Keep 摘要有时缺 averagePace,用距离/时长推导;但距离过小(GPS 抖动/误触的几十米"活动")
+  // 推出的配速是垃圾还长得像真的,所以只在 ≥0.1km 时推导,更短的就不给配速。存量 averagePace 一律信。
+  const paceSecPerKm = row.averagePace ?? (distanceKm >= 0.1 ? row.duration / distanceKm : null)
   return {
     date,
     daysAgo,
@@ -400,22 +402,23 @@ export async function getRecentActivityContext(limit = 5): Promise<RecentActivit
  */
 export async function getLatestActivityPerType(): Promise<RecentActivityContext[]> {
   const db = await getActivitiesDb()
-  // 活动量级很小(几十~几百条),取摘要列扫一遍在 JS 里去重,比 GROUP BY 子查询直白
-  const rows = await db
-    .select(ACTIVITY_SUMMARY_COLUMNS)
-    .from(activities)
-    .orderBy(desc(activities.startTime))
-    .limit(500)
+  // 先取所有出现过的类型(基数极小:跑/骑/走…),再各查最近一条。
+  // Reason: 不能"扫最近 N 条 + JS 去重"——若某类型全被更晚的其他类型挤到 N 条之外,就会漏掉它的最近一次。
+  const typeRows = await db.selectDistinct({ type: activities.type }).from(activities)
   const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' })
   const today = fmt.format(new Date())
-  const seen = new Set<string>()
-  const latest: RecentActivityContext[] = []
-  for (const row of rows) {
-    if (seen.has(row.type)) continue
-    seen.add(row.type)
-    latest.push(mapActivityRow(row, fmt, today))
-  }
-  return latest
+  const perType = await Promise.all(
+    typeRows.map(async ({ type }) => {
+      const [row] = await db
+        .select(ACTIVITY_SUMMARY_COLUMNS)
+        .from(activities)
+        .where(eq(activities.type, type))
+        .orderBy(desc(activities.startTime))
+        .limit(1)
+      return row ? mapActivityRow(row, fmt, today) : null
+    }),
+  )
+  return perType.filter((item): item is RecentActivityContext => item !== null)
 }
 
 export const PR_DAILY_BUILDER_VERSION = 'pr-daily-v1'
