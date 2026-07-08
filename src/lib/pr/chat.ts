@@ -9,7 +9,7 @@ import {
 } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 
-import { buildCompanionProfileContext } from './context'
+import { buildCompanionProfileContext, getRecentActivityContext } from './context'
 import { evaluateChatReply, type ChatEvalContext } from './evaluator'
 import { getLatestHealthDailyMetrics } from './health'
 import { applyMemoryPatch, curateMemoryPatches, listContextMemories } from './memory'
@@ -204,7 +204,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
   try {
     // ── build_context (FactLoader + FeatureBuilder + MemoryRetriever + KnowledgeRetriever) ──
     // 每个来源独立降级:RAG/记忆/健康/目标/画像任一失败都不该让对话挂掉。
-    const [memoryItems, knowledge, recentMessages, recentHealth, raceGoals, companionProfile] =
+    const [memoryItems, knowledge, recentMessages, recentHealth, raceGoals, companionProfile, recentActivities] =
       await Promise.all([
         listContextMemories(6).catch(() => []),
         retrieveKnowledge(input.message, 3).catch(() => []),
@@ -217,6 +217,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
         getLatestHealthDailyMetrics(1).catch(() => []),
         getRaceGoalContext(3).catch(() => []),
         buildCompanionProfileContext().catch(() => null),
+        getRecentActivityContext(5).catch(() => []),
       ])
 
     // 历史(不含刚插入的这条),按时间正序;新消息单独作为"刚发来"传给模型。
@@ -229,6 +230,10 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       ? `- ${h.date}：睡 ${h.sleepMinutes ?? '-'} 分、静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}、步数 ${h.steps ?? '-'}、恢复 ${h.recoveryLabel}`
       : null
     const goalLines = raceGoals.map(goal => `${goal.name}（还有 ${goal.daysUntilRace} 天）`)
+    const activityTypeLabel: Record<string, string> = { running: '跑步', cycling: '骑行', walking: '步行' }
+    const runLines = recentActivities.map(act =>
+      `- ${act.date}（${act.daysAgo === 0 ? '今天' : act.daysAgo === 1 ? '昨天' : `${act.daysAgo} 天前`}）：${activityTypeLabel[act.type] ?? act.type} ${act.distanceKm} km，用时 ${act.durationMin} 分钟${act.paceText ? `，配速 ${act.paceText}/km` : ''}${act.avgHeartRate ? `，平均心率 ${act.avgHeartRate}` : ''}`,
+    )
     const profileBlock = companionProfile
       ? {
           displayName: companionProfile.displayName,
@@ -244,6 +249,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
       knowledgeCount: knowledge.length,
       historyTurns: history.length,
       hasHealth: Boolean(h),
+      recentActivityCount: recentActivities.length,
       raceGoals: goalLines,
       profileVersion: companionProfile?.projectionVersion ?? null,
     })
@@ -264,6 +270,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
           memories: memoryItems.map(memory => memory.content),
           knowledge: knowledge.map(item => item.content.slice(0, 220)),
           health: healthLine,
+          recentRuns: runLines,
           raceGoals: goalLines,
           profile: profileBlock,
           hasImage: images.length > 0,

@@ -335,6 +335,8 @@ export function buildChatUserPrompt(input: {
   memories: string[]
   knowledge: string[]
   health?: string | null
+  /** 最近运动记录行(手表同步的真实数据,一行一条)。 */
+  recentRuns?: string[]
   raceGoals?: string[]
   profile?: ChatProfileBlock
   /** 用户是否同时发来图片(多模态)。 */
@@ -381,6 +383,9 @@ ${know}
 
 # 最近身体数据
 ${input.health ?? '- 暂无'}
+
+# 最近运动记录（手表同步的真实数据，聊到上次跑步/距离/配速/心率时以此为准，可直接引用；列表之外的就说没查到，别猜别编）
+${input.recentRuns && input.recentRuns.length ? input.recentRuns.join('\n') : '- 暂无同步记录'}
 
 # 比赛目标
 ${goals}

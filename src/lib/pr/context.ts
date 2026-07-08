@@ -305,6 +305,51 @@ export async function buildPrContext(activityId: string): Promise<PrContext | nu
   }
 }
 
+export interface RecentActivityContext {
+  date: string
+  daysAgo: number
+  type: string
+  distanceKm: number
+  durationMin: number
+  paceText: string | null
+  avgHeartRate: number | null
+}
+
+/** 秒/公里 → 5'29" 文本。 */
+function formatPace(secPerKm: number | null): string | null {
+  if (!secPerKm || !Number.isFinite(secPerKm) || secPerKm <= 0) return null
+  const minutes = Math.floor(secPerKm / 60)
+  const seconds = Math.round(secPerKm % 60)
+  return `${minutes}'${String(seconds).padStart(2, '0')}"`
+}
+
+/**
+ * 最近 N 次运动(FactLoader 之一,供对话引用真实跑步记录——此前对话只喂健康数据,
+ * PR 会对"上次跑步"瞎猜)。日期按 Asia/Shanghai(与健康数据同键)。
+ */
+export async function getRecentActivityContext(limit = 5): Promise<RecentActivityContext[]> {
+  const db = await getActivitiesDb()
+  const rows = await db.select().from(activities).orderBy(desc(activities.startTime)).limit(limit)
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' })
+  const today = fmt.format(new Date())
+  return rows.map(row => {
+    const date = fmt.format(row.startTime)
+    const daysAgo = Math.max(0, Math.round((Date.parse(today) - Date.parse(date)) / 86_400_000))
+    const distanceKm = row.distance / 1000
+    // Reason: Keep 摘要有时缺 averagePace,用距离/时长推导,避免明明有数据却答"没存配速"
+    const paceSecPerKm = row.averagePace ?? (distanceKm > 0 ? row.duration / distanceKm : null)
+    return {
+      date,
+      daysAgo,
+      type: row.type,
+      distanceKm: Math.round(distanceKm * 100) / 100,
+      durationMin: Math.round(row.duration / 60),
+      paceText: formatPace(paceSecPerKm),
+      avgHeartRate: row.averageHeartRate ?? null,
+    }
+  })
+}
+
 export const PR_DAILY_BUILDER_VERSION = 'pr-daily-v1'
 
 export interface DailyContext {
