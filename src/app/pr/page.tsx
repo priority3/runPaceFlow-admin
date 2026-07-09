@@ -44,6 +44,9 @@ const TrashIcon = ({ size = 18, className }: IconProps) => (
 const SendIcon = ({ size = 20, className }: IconProps) => (
   <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
 )
+const StopIcon = ({ size = 20, className }: IconProps) => (
+  <svg {...svgBase(size)} className={className} aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" /></svg>
+)
 const CloseIcon = ({ size = 16, className }: IconProps) => (
   <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
 )
@@ -77,6 +80,7 @@ export default function PrChatPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 历史消息入场错峰只在整屏载入时生效;之后追加的新消息立即入场(否则每次发送都要等 delay)
   const staggerCountRef = useRef(0)
@@ -236,11 +240,14 @@ export default function PrChatPage() {
     setPendingImageUrl(null)
     setMessages(m => [...m, { role: 'user', content: text, imageUrl }])
     setSending(true)
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
       const r = await fetch('/api/pr/chat', {
         method: 'POST',
         headers: { ...authHeader(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, threadId, imageUrl }),
+        signal: controller.signal,
       })
       if (r.status === 401) { setAuthError(true); setSending(false); return }
       const j = await r.json()
@@ -250,13 +257,25 @@ export default function PrChatPage() {
       }
       setMessages(m => [...m, { role: 'assistant', content: j.answer ?? '(没有回复)' }])
       if (isNew) void fetchThreads() // 新会话 → 刷新列表让它出现
-    } catch {
-      setMessages(m => [...m, { role: 'assistant', content: '网络出错了，稍后再试。' }])
+    } catch (error) {
+      // 用户主动中断:服务端可能仍会完成并落库,重进会话可见,不当成网络错误
+      if ((error as Error).name === 'AbortError') {
+        setMessages(m => [...m, { role: 'assistant', content: '（已停止等待。PR 可能稍后仍会回复，重新进入会话可见。）' }])
+      } else {
+        setMessages(m => [...m, { role: 'assistant', content: '网络出错了，稍后再试。' }])
+      }
     }
+    abortRef.current = null
     setSending(false)
   }
 
+  function stopWaiting() {
+    abortRef.current?.abort()
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // 中文输入法组词中的回车是「确认候选词」,不是发送(isComposing;Safari 旧版用 keyCode 229)
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       void send()
@@ -494,13 +513,13 @@ export default function PrChatPage() {
             />
             <button
               type="button"
-              onClick={() => void send()}
-              disabled={!canSend}
+              onClick={() => (sending ? stopWaiting() : void send())}
+              disabled={!sending && !canSend}
               className="pr-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
               style={{ background: 'var(--pr-accent)', color: 'var(--pr-accent-ink)' }}
-              aria-label="发送"
+              aria-label={sending ? '停止' : '发送'}
             >
-              {sending ? <Spinner size={18} /> : <SendIcon size={18} />}
+              {sending ? <StopIcon size={18} /> : <SendIcon size={18} />}
             </button>
           </div>
         </div>
