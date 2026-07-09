@@ -82,6 +82,11 @@ export async function callPrModel(
       apiKey: settings.ANTHROPIC_API_KEY,
       ...(settings.ANTHROPIC_BASE_URL && { baseURL: settings.ANTHROPIC_BASE_URL }),
       defaultHeaders: { 'anthropic-beta': ANTHROPIC_BETA },
+      // Reason: FC 网关会偶发挂起(实测单请求吊 296s),SDK 默认 timeout 10 分钟——
+      // 请求被吊死时 Cloudflare 隧道 ~100s 就切断客户端,H5 只看到"网络出错"。
+      // 单次请求 60s 封顶(haiku 500 token 正常 <15s),重试交给上层降级链。
+      timeout: 60_000,
+      maxRetries: 1,
     })
 
     // 图片附着到最后一条 user 消息(图在前、文本在后),其余轮次纯文本。
