@@ -398,7 +398,7 @@ async function chatWithPrInner(
     try {
       const first = await persona()
       attempts = 1
-      answer = first.content.trim() || buildRuleBasedChatReply()
+      answer = first.content.trim() || buildRuleBasedChatReply('模型返回空内容')
       model = first.model
       provider = first.provider
       const firstEval = await withSpan(
@@ -446,7 +446,7 @@ async function chatWithPrInner(
       }
     } catch (personaError) {
       console.warn('[pr-chat] FriendPersona 生成失败，回退兜底:', (personaError as Error).message)
-      answer = buildRuleBasedChatReply()
+      answer = buildRuleBasedChatReply((personaError as Error).message)
       model = 'rule-based-chat-v1'
       provider = 'local-rule'
       await writeSnapshot(runId, 'draft_response', { fallback: true, error: (personaError as Error).message })
@@ -516,8 +516,8 @@ async function chatWithPrInner(
     rootSpan.recordException(error as Error)
     rootSpan.setStatus({ code: SpanStatusCode.ERROR, message })
     rootSpan.setAttribute('pr.orchestration_failed', true)
-    // 对话必须有回复:即便编排出错,也返回兜底话,让微信/前端能给用户一个响应。
-    const answer = buildRuleBasedChatReply()
+    // 对话必须有回复:即便编排出错,也返回兜底话(带真实报错),让微信/前端能给用户一个响应。
+    const answer = buildRuleBasedChatReply(message)
     rootSpan.setAttribute(OI.OUTPUT, clip(answer, 2000))
     return { threadId, runId, answer, model: 'rule-based-chat-v1', provider: 'local-rule', warnings: ['orchestration_failed'], learnedMemoryIds: [] }
   }

@@ -403,9 +403,10 @@ export function buildChatRewriteNote(warnings: string[]) {
   return `（系统评审，不是用户的消息）你上面这条回复有问题：${warnings.join('；')}。请重写一版：只修这些问题，其余内容和口吻保持不变，直接输出给他的新回复，不要解释。`
 }
 
-/** AI 挂掉时的兜底回复（不能真回答,但别装作能答）。 */
-export function buildRuleBasedChatReply(): string {
-  return '收到～这会儿我这边 AI 没接上，回头用完整状态再跟你细聊。要是急，先说说你现在啥感觉、今天想练啥，我按已知的先给你搭个主意。'
+/** AI 挂掉时的兜底回复:带上真实报错(单用户工具,透明比装没事有用),没有就用通用话术。 */
+export function buildRuleBasedChatReply(error?: string): string {
+  const reason = error?.trim() ? `\n\n（AI 调用失败：${error.trim().slice(0, 200)}）` : ''
+  return `收到～这会儿我这边 AI 没接上，回头用完整状态再跟你细聊。要是急，先说说你现在啥感觉、今天想练啥，我按已知的先给你搭个主意。${reason}`
 }
 
 // ─── MemoryCurator(LLM 蒸馏 + 结构化判断) ────────────────────────────────
