@@ -15,8 +15,9 @@ services:
       - RUNPACEFLOW_FRONTEND_URL=http://127.0.0.1:3000
       - DATABASE_URL=file:/app/data/admin.db
       - ACTIVITIES_DATABASE_URL=file:/app/shared/shared.db
-      # 可观测:配了就把 agent trace 发到 Phoenix;留空则 tracing 关闭(no-op,零开销)
-      - PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006
+      # 可观测:配了就把 agent trace 发到 Phoenix;留空则 tracing 关闭(no-op,零开销)。
+      # Phoenix 以 root_path=/phoenix 运行,OTLP 摄取也在该前缀下,故 endpoint 带 /phoenix。
+      - PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006/phoenix
       - PHOENIX_PROJECT_NAME=pr-agent
     volumes:
       - runpaceflow-admin-data:/app/data
@@ -27,12 +28,14 @@ services:
     image: arizephoenix/phoenix:latest
     container_name: phoenix
     restart: unless-stopped
-    # 只绑本机回环:trace 里含健康数据,不裸奔公网。查看用 SSH 端口转发:
-    #   ssh -L 6006:localhost:6006 <host>  → 浏览器打开 http://localhost:6006
+    # 只绑本机回环:trace 含健康数据,不裸暴露。公网访问经 admin 的 /phoenix 路由
+    # (需 admin 登录态)反代进来;Phoenix 自身零鉴权,只对回环开放。
     ports:
       - '127.0.0.1:6006:6006'
     environment:
       - PHOENIX_WORKING_DIR=/mnt/data
+      # 挂在 admin 的 /phoenix 子路径下:整个 SPA + 接口都带此前缀,资源才能正确解析
+      - PHOENIX_HOST_ROOT_PATH=/phoenix
     volumes:
       - phoenix_data:/mnt/data
 
