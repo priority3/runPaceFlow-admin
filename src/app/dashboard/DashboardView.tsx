@@ -117,9 +117,9 @@ export function DashboardView({ settings }: DashboardViewProps) {
         </nav>
 
         <div className="border-sidebar-border space-y-1 border-t p-3">
-          {/* Phoenix 是独立 app,整页跳转(非 dashboard tab);新标签打开,复用 admin 登录态 */}
+          {/* Phoenix 是独立子域(自带登录),新标签打开 */}
           <a
-            href="/phoenix"
+            href="https://phoenix.razet.me"
             target="_blank"
             rel="noopener noreferrer"
             className="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm transition-colors"

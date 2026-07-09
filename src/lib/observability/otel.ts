@@ -18,6 +18,8 @@ export function initOtel() {
     return
   }
   const project = process.env.PHOENIX_PROJECT_NAME || 'pr-agent'
+  // Phoenix 开鉴权后,OTLP 摄取也要带 key(用 PHOENIX_ADMIN_SECRET 作系统 key);未开鉴权则留空。
+  const apiKey = process.env.PHOENIX_API_KEY
   const provider = new NodeTracerProvider({
     resource: resourceFromAttributes({
       'service.name': 'runpaceflow-admin',
@@ -26,7 +28,10 @@ export function initOtel() {
     }),
     spanProcessors: [
       new BatchSpanProcessor(
-        new OTLPTraceExporter({ url: `${endpoint.replace(/\/$/, '')}/v1/traces` }),
+        new OTLPTraceExporter({
+          url: `${endpoint.replace(/\/$/, '')}/v1/traces`,
+          ...(apiKey ? { headers: { authorization: `Bearer ${apiKey}` } } : {}),
+        }),
       ),
     ],
   })

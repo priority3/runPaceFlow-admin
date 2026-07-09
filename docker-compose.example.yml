@@ -16,9 +16,10 @@ services:
       - DATABASE_URL=file:/app/data/admin.db
       - ACTIVITIES_DATABASE_URL=file:/app/shared/shared.db
       # 可观测:配了就把 agent trace 发到 Phoenix;留空则 tracing 关闭(no-op,零开销)。
-      # Phoenix 以 root_path=/phoenix 运行,OTLP 摄取也在该前缀下,故 endpoint 带 /phoenix。
-      - PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006/phoenix
+      - PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006
       - PHOENIX_PROJECT_NAME=pr-agent
+      # Phoenix 开鉴权后,OTLP 摄取需带 key —— 用 phoenix 的 PHOENIX_ADMIN_SECRET 作系统 key
+      - PHOENIX_API_KEY=change-me-same-as-phoenix-admin-secret
     volumes:
       - runpaceflow-admin-data:/app/data
       - rpf_shared_data:/app/shared
@@ -28,14 +29,17 @@ services:
     image: arizephoenix/phoenix:latest
     container_name: phoenix
     restart: unless-stopped
-    # 只绑本机回环:trace 含健康数据,不裸暴露。公网访问经 admin 的 /phoenix 路由
-    # (需 admin 登录态)反代进来;Phoenix 自身零鉴权,只对回环开放。
+    # 只绑本机回环:app(host 网络)经 127.0.0.1:6006 发 trace + 查询。
+    # 公网访问用独立子域 phoenix.razet.me(经 cloudflared 隧道)+ 下面的自带登录鉴权。
     ports:
       - '127.0.0.1:6006:6006'
     environment:
       - PHOENIX_WORKING_DIR=/mnt/data
-      # 挂在 admin 的 /phoenix 子路径下:整个 SPA + 接口都带此前缀,资源才能正确解析
-      - PHOENIX_HOST_ROOT_PATH=/phoenix
+      # 自带鉴权(SECRET/ADMIN_SECRET 需 ≥32 且互不相同;ADMIN_SECRET 兼作系统 API key)
+      - PHOENIX_ENABLE_AUTH=true
+      - PHOENIX_SECRET=change-me-32+chars-random
+      - PHOENIX_ADMIN_SECRET=change-me-different-32+chars-random
+      - PHOENIX_DEFAULT_ADMIN_INITIAL_PASSWORD=change-me-initial-login
     volumes:
       - phoenix_data:/mnt/data
 
