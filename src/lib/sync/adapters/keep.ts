@@ -157,6 +157,9 @@ export class KeepAdapter implements SyncAdapter {
     const averageHeartRate = num(hr.averageHeartRate)
     const calories = num(d.calorie)
     const hasGeo = typeof d.geoPoints === 'string' && (d.geoPoints as string).length > 0
+    // Keep 给跑步机记录也塞 geoPoints:2 个恒定的占位假点(天安门坐标)。
+    // 只有解出「≥3 个、坐标非恒定」的点才算真轨迹;室内判定优先看 subtype。
+    const isTreadmill = d.subtype === 'treadmill'
 
     // 尽力而为解码轨迹 + 逐点心率;失败则降级为无轨迹摘要。
     let gpxData: string | undefined
@@ -169,9 +172,9 @@ export class KeepAdapter implements SyncAdapter {
           .filter((n): n is number => n != null)
         if (bpms.length) maxHeartRate = Math.max(...bpms)
       }
-      if (hasGeo) {
+      if (hasGeo && !isTreadmill) {
         const points = this.decode(d.geoPoints as string, true)
-        if (Array.isArray(points) && points.length) {
+        if (Array.isArray(points) && isRealTrack(points as KeepPoint[])) {
           gpxData = pointsToGPX(points as KeepPoint[], startMs, typeof d.name === 'string' ? d.name : 'Keep 跑步')
         }
       }
@@ -183,7 +186,7 @@ export class KeepAdapter implements SyncAdapter {
       id,
       title: typeof d.name === 'string' && d.name ? d.name : 'Keep 跑步',
       type: 'running',
-      isIndoor: !hasGeo,
+      isIndoor: isTreadmill || !gpxData,
       startTime: new Date(startMs),
       duration,
       distance,
@@ -202,7 +205,10 @@ export class KeepAdapter implements SyncAdapter {
 
   /**
    * base64 → (geo 再做 AES-128-CBC 解密) → gzip 解压 → JSON。
-   * 与 running_page 一致:AES 不去 padding,padding 落在 gzip 流之后由解压忽略。
+   *
+   * Reason: Python zlib 会忽略 gzip 流之后的尾随字节,但 Node 的 gunzipSync 会把
+   * AES 的 PKCS7 padding 当作"下一个 gzip 成员"解析,抛 incorrect header check——
+   * 这曾让所有 Keep 跑步的轨迹静默降级为无 GPS。因此解密后必须先裁掉 padding。
    */
   private decode(text: string, isGeo: boolean): unknown {
     let buf = Buffer.from(text, 'base64')
@@ -210,9 +216,19 @@ export class KeepAdapter implements SyncAdapter {
       const decipher = createDecipheriv('aes-128-cbc', KEEP_AES_KEY, KEEP_AES_IV)
       decipher.setAutoPadding(false)
       buf = Buffer.concat([decipher.update(buf), decipher.final()])
+      const pad = buf[buf.length - 1]
+      if (pad >= 1 && pad <= 16 && buf.length > pad) buf = buf.subarray(0, buf.length - pad)
     }
     return JSON.parse(gunzipSync(buf).toString('utf8'))
   }
+}
+
+/** 真轨迹判定:≥3 个有效点且坐标非恒定(挡掉跑步机的占位假点)。 */
+function isRealTrack(points: KeepPoint[]): boolean {
+  const valid = points.filter(p => p.latitude != null && p.longitude != null)
+  if (valid.length < 3) return false
+  const first = valid[0]
+  return valid.some(p => p.latitude !== first.latitude || p.longitude !== first.longitude)
 }
 
 /** Keep 解码后的轨迹点 → 标准 GPX(坐标为 GCJ-02,仅用于测距/分段,不做地图叠加)。 */
