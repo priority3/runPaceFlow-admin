@@ -22,10 +22,14 @@ const DEFAULT_JOBS: Array<{ id: string; name: string; cronExpression: string }> 
   { id: 'insights', name: 'AI 分析生成', cronExpression: '5 * * * *' },
   { id: 'notification_dispatch', name: 'PR 通知分发', cronExpression: '*/10 * * * *' },
   { id: 'weekly_review', name: 'PR 周总结', cronExpression: '0 20 * * 0' },
+  // 老友日记:每周日 21:31(周总结之后),把本周脉络蒸馏成日记 + 候选记忆 → 刷新画像。
+  { id: 'friend_diary', name: 'PR 老友日记', cronExpression: '31 21 * * 0' },
   // Event-driven is primary (fires on health upload); this is a late idempotent
   // fallback that only generates if the day's reflection is still missing.
   { id: 'pr_daily_review', name: 'PR 每日反思(兜底)', cronExpression: '0 12 * * *' },
   { id: 'daily_report', name: '每日训练报告', cronExpression: '0 21 * * *' },
+  // 记忆维护:每天 3:33 衰减长期无新证据的弱候选/陈旧习惯,配合 dedupeKey 清理历史重复。
+  { id: 'memory_maintenance', name: 'PR 记忆维护(衰减/新鲜度)', cronExpression: '33 3 * * *' },
   { id: 'retention_cleanup', name: '数据保留清理', cronExpression: '0 3 * * 0' }, // Weekly on Sunday at 3am
 ]
 

@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, lt } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
 import { activityReviews, agentRuns, agentStateSnapshots } from '@/lib/db/activities-schema'
@@ -6,6 +6,40 @@ import { activityReviews, agentRuns, agentStateSnapshots } from '@/lib/db/activi
 function toIso(value: Date | string | number | null) {
   if (!value) return null
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+}
+
+const STALE_RUN_MINUTES = 15
+
+/**
+ * 编排状态机可恢复(务实版)。同步管线里一个 run 若进程中途崩溃,会永远停在 status='running'。
+ * 启动时把超过阈值仍 running 的孤儿 run 收回为 failed(errorCode='stale_reclaimed'),
+ * 让它们不再永久占着"运行中"、并在 Dashboard / trace 里可见。
+ *
+ * Reason: cron 型 run(review/daily/weekly)靠 input_hash 幂等,下次调度 tick 会重新生成缺失产出;
+ * 因此这里只做 reclaim + 依赖幂等重跑,不做逐 step 的状态恢复(同步请求内管线不支持中途续跑)。
+ */
+export async function reclaimStaleRuns(staleMinutes = STALE_RUN_MINUTES): Promise<number> {
+  const db = await getActivitiesDb()
+  const cutoff = new Date(Date.now() - staleMinutes * 60_000)
+  const stale = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.status, 'running'), lt(agentRuns.startedAt, cutoff)))
+    .limit(200)
+  for (const row of stale) {
+    // 再次带 status='running' 条件更新,避免与刚好完成的 run 抢写。
+    await db
+      .update(agentRuns)
+      .set({
+        status: 'failed',
+        errorCode: 'stale_reclaimed',
+        errorMessage: `运行超过 ${staleMinutes} 分钟未完成，判定为进程中断的孤儿 run，已收回。`,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(agentRuns.id, row.id), eq(agentRuns.status, 'running')))
+  }
+  return stale.length
 }
 
 export async function listAgentRuns(limit = 30) {

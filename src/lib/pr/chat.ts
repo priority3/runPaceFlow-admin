@@ -14,7 +14,7 @@ import { generateId } from '@/lib/utils'
 import { buildCompanionProfileContext, getLatestActivityPerType, getRecentActivityContext } from './context'
 import { evaluateChatReply, type ChatEvalContext } from './evaluator'
 import { getLatestHealthDailyMetrics } from './health'
-import { applyMemoryPatch, curateMemoryPatches, listContextMemories } from './memory'
+import { applyMemoryPatch, curateMemoryPatches, listRelevantContextMemories } from './memory'
 import { callPrModel, parseModelJson, type PrModelMessage } from './model'
 import {
   buildChatContextTurn,
@@ -24,7 +24,7 @@ import {
   buildThreadSummarySystemPrompt,
   buildThreadSummaryUserPrompt,
 } from './prompts'
-import { getRaceGoalContext } from './race-goals'
+import { getRaceGoalContext, raceGoalSummary } from './race-goals'
 import { retrieveKnowledge } from './rag'
 import { executePrChatTool, PR_CHAT_TOOLS } from './tools'
 import { readImageUpload, uploadNameFromUrl } from './uploads'
@@ -236,7 +236,7 @@ async function chatWithPrInner(
     const [memoryItems, knowledge, recentMessages, recentHealth, raceGoals, companionProfile, recentActivities, latestPerType] =
       await withSpan('pr.build_context', 'CHAIN', {}, async span => {
         const results = await Promise.all([
-          listContextMemories(6).catch(() => []),
+          listRelevantContextMemories(input.message, 6).catch(() => []),
           retrieveKnowledge(input.message, 3).catch(() => []),
           db
             .select()
@@ -304,7 +304,7 @@ async function chatWithPrInner(
     const healthLine = h
       ? `- ${h.date}：睡 ${h.sleepMinutes ?? '-'} 分、静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}、步数 ${h.steps ?? '-'}、恢复 ${h.recoveryLabel}`
       : null
-    const goalLines = raceGoals.map(goal => `${goal.name}（还有 ${goal.daysUntilRace} 天）`)
+    const goalLines = raceGoals.map(raceGoalSummary)
     const activityTypeLabel: Record<string, string> = { running: '跑步', cycling: '骑行', walking: '步行' }
     const daysAgoLabel = (days: number) => (days === 0 ? '今天' : days === 1 ? '昨天' : `${days} 天前`)
     const activityLine = (act: (typeof recentActivities)[number]) =>

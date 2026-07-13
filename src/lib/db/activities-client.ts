@@ -269,6 +269,7 @@ async function ensureActivitiesSchema(client: Client) {
         evidence_json text NOT NULL,
         confidence real NOT NULL DEFAULT 0,
         source text NOT NULL,
+        dedupe_key text,
         first_seen_at integer DEFAULT (unixepoch()) NOT NULL,
         last_seen_at integer DEFAULT (unixepoch()) NOT NULL,
         expires_at integer,
@@ -482,6 +483,15 @@ async function ensureActivitiesSchema(client: Client) {
     await client.execute('ALTER TABLE health_daily_metrics ADD COLUMN env_audio_db real')
   }
 
+  // memory_items.dedupe_key:同族记忆去重键,老库需显式补列(幂等)。
+  const memoryColumns = await client.execute('PRAGMA table_info(memory_items)')
+  const existingMemoryColumns = new Set(
+    memoryColumns.rows.map((row) => String((row as { name?: string }).name)),
+  )
+  if (!existingMemoryColumns.has('dedupe_key')) {
+    await client.execute('ALTER TABLE memory_items ADD COLUMN dedupe_key text')
+  }
+
   await client.execute('CREATE INDEX IF NOT EXISTS idx_activities_source_id ON activities(source, source_id)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_activities_source_start_time ON activities(source, start_time)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_splits_activity_id ON splits(activity_id)')
@@ -507,6 +517,7 @@ async function ensureActivitiesSchema(client: Client) {
   await client.execute('CREATE INDEX IF NOT EXISTS idx_subjective_feedback_activity_id ON subjective_feedback(activity_id, created_at)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_items_type_status ON memory_items(type, status)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_items_last_seen_at ON memory_items(last_seen_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_items_dedupe_key ON memory_items(dedupe_key)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_events_memory_id_created_at ON memory_events(memory_id, created_at)')
   await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_events_idempotency ON memory_events(idempotency_key)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_friend_diary_entries_period ON friend_diary_entries(period_start, period_end)')

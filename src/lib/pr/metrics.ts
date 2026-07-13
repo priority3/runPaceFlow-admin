@@ -126,7 +126,9 @@ export async function getPrFlywheel(days = 30) {
     period: metrics.period,
     factGrowth,
     feedbackRate: rate(metrics.facts.subjectiveFeedback + feedbackEventTotal, reviewTotal),
-    memoryConfirmationRate: rate(metrics.feedbackEvents.byType.memory_confirm ?? metrics.memories.byStatus.active ?? 0, memoryTotal),
+    // 确认率 = 用户面板确认次数 / 记忆总数。不再用 active 数兜底(那会把"自动晋升的 active"
+    // 误当成"用户确认",高估确认率)。无确认事件时如实为 0。
+    memoryConfirmationRate: rate(metrics.feedbackEvents.byType.memory_confirm ?? 0, memoryTotal),
     memoryCorrectionRate: rate((metrics.feedbackEvents.byType.memory_archive ?? 0) + (metrics.feedbackEvents.byType.correction ?? 0), memoryTotal),
     contextHitRate: rate((metrics.facts.healthDailyMetrics > 0 ? 1 : 0) + (metrics.facts.activeRaceGoals > 0 ? 1 : 0), 2),
     ragUsefulRate: 0,

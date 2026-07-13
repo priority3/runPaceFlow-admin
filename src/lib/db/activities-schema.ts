@@ -269,6 +269,9 @@ export const memoryItems = sqliteTable('memory_items', {
   evidenceJson: text('evidence_json').notNull(),
   confidence: real('confidence').notNull().default(0),
   source: text('source').notNull(),
+  // 同族记忆的稳定去重键(如 habit:time_of_day:running)。同一 dedupeKey 只保留一条,
+  // 新信号取代旧内容,避免"午间/夜间"这类同族矛盾并存。为空则按内容去重。
+  dedupeKey: text('dedupe_key'),
   firstSeenAt: integer('first_seen_at', { mode: 'timestamp' })
     .notNull()
     .default(sql`(unixepoch())`),

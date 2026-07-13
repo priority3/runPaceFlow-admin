@@ -336,6 +336,7 @@ export async function generatePrReviewForActivity(
     const memoryPatches = buildMemoryPatchesFromHabitSignals({
       runId,
       activityId,
+      activityType: context.activity.summary.type,
       signals: context.trainingHabitSignals,
     })
     const memoryIds: string[] = []

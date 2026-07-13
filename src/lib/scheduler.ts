@@ -11,9 +11,13 @@ import { generateInsightsForUncached } from './ai'
 import { dispatchPendingNotifications } from './notifications/dispatcher'
 import { generateDailyReport, sendPushPlus } from './notify'
 import { generatePrReviewsForActivities } from './pr/review'
+import { reconcileMemories, runMemoryMaintenance } from './pr/memory'
+import { reclaimStaleRuns } from './pr/state'
+import { generateFriendDiary } from './pr/diary'
 import { generateDailyReview } from './pr/daily'
 import { generateWeeklyReview } from './pr/weekly'
 import { cleanupOldData } from './retention'
+import { getRuntimeSetting } from './runtime-config'
 import { ensureDefaultJobs, listJobs, recordJobRun } from './scheduler-config'
 import { drainStravaEvents } from './strava/events'
 import { performSync } from './sync/service'
@@ -195,6 +199,50 @@ async function jobPrDailyReview() {
   }
 }
 
+// ─── Job: Friend Diary ──────────────────────────────────────────────────────
+
+async function jobFriendDiary() {
+  console.log('[Scheduler] Running PR friend diary job...')
+  const startTime = Date.now()
+  try {
+    const result = await generateFriendDiary()
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun(
+      'friend_diary',
+      `${result.generated ? 'generated' : 'skipped'}: ${result.learnedMemoryIds.length} memories in ${elapsed}s`,
+    )
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun('friend_diary', `error: ${(err as Error).message} (${elapsed}s)`)
+  }
+}
+
+// ─── Job: Memory Maintenance ────────────────────────────────────────────────
+
+async function jobMemoryMaintenance() {
+  console.log('[Scheduler] Running PR memory maintenance job...')
+  const startTime = Date.now()
+  try {
+    // 先确定性衰减陈旧条目,再让 LLM 语义调和冗余/矛盾(调和失败不影响衰减结果)。
+    const decay = await runMemoryMaintenance()
+    // 首轮上线默认 dry-run:PR_MEMORY_RECONCILE_APPLY 未开时只把建议打进日志、不写库。
+    const applyFlag = (await getRuntimeSetting('PR_MEMORY_RECONCILE_APPLY').catch(() => '')).toLowerCase()
+    const applyReconcile = ['1', 'true', 'yes', 'on'].includes(applyFlag)
+    const reconcile = await reconcileMemories({ apply: applyReconcile }).catch(err => {
+      console.warn('[Scheduler] memory reconcile failed:', (err as Error).message)
+      return { proposed: 0, applied: 0, dryRun: !applyReconcile }
+    })
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun(
+      'memory_maintenance',
+      `success: decay ${decay.decayed}/${decay.scanned}, reconcile ${reconcile.applied}/${reconcile.proposed}${reconcile.dryRun ? ' (dry-run)' : ''} in ${elapsed}s`,
+    )
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    await recordJobRun('memory_maintenance', `error: ${(err as Error).message} (${elapsed}s)`)
+  }
+}
+
 // ─── Job: Retention Cleanup ─────────────────────────────────────────────────
 
 async function jobRetentionCleanup() {
@@ -276,6 +324,22 @@ export async function manualDailyReview(): Promise<{ success: boolean; message: 
   }
 }
 
+export async function manualFriendDiary(): Promise<{ success: boolean; message: string }> {
+  try {
+    const result = await generateFriendDiary({ force: true })
+    await recordJobRun(
+      'friend_diary',
+      `manual: ${result.generated ? 'generated' : 'skipped'} ${result.learnedMemoryIds.length} memories`,
+    )
+    return {
+      success: true,
+      message: `Friend diary ${result.generated ? 'generated' : 'skipped'}, ${result.learnedMemoryIds.length} memory candidates`,
+    }
+  } catch (err) {
+    return { success: false, message: (err as Error).message }
+  }
+}
+
 export async function manualStravaEventDrain(): Promise<{ success: boolean; message: string }> {
   try {
     const result = await drainStravaEvents(10)
@@ -299,6 +363,8 @@ const JOB_HANDLERS: Record<string, () => Promise<void>> = {
   weekly_review: jobWeeklyReview,
   pr_daily_review: jobPrDailyReview,
   daily_report: jobDailyReport,
+  friend_diary: jobFriendDiary,
+  memory_maintenance: jobMemoryMaintenance,
   retention_cleanup: jobRetentionCleanup,
 }
 
@@ -335,6 +401,14 @@ async function setupJobs() {
 export async function startScheduler() {
   if (schedulerStarted) return
   schedulerStarted = true
+
+  // 启动即收回上次进程崩溃遗留的孤儿 run(status='running' 太久),避免它们永久卡住。
+  try {
+    const reclaimed = await reclaimStaleRuns()
+    if (reclaimed > 0) console.log(`[Scheduler] Reclaimed ${reclaimed} stale running agent run(s)`)
+  } catch (err) {
+    console.warn('[Scheduler] reclaimStaleRuns failed:', (err as Error).message)
+  }
 
   await ensureDefaultJobs()
   await setupJobs()

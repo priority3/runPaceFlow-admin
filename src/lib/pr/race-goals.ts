@@ -26,6 +26,34 @@ export interface RaceGoalUpdateInput {
   notes?: string | null
 }
 
+export type RacePhase = 'base' | 'build' | 'peak' | 'taper' | 'post_race'
+
+const PHASE_LABEL: Record<RacePhase, string> = {
+  base: '基础期',
+  build: '强化期',
+  peak: '专项期',
+  taper: '减量期',
+  post_race: '赛后恢复',
+}
+
+/**
+ * 按赛前天数估算备赛周期位置(通用马拉松/半马周期的粗分)。
+ * Reason: 让 PR 的反思/日记/对话能说出"现在在哪个备赛阶段",而不只是倒计时天数。
+ */
+export function racePhase(daysUntilRace: number): RacePhase {
+  if (daysUntilRace < 0) return 'post_race'
+  if (daysUntilRace <= 10) return 'taper'
+  if (daysUntilRace <= 28) return 'peak'
+  if (daysUntilRace <= 56) return 'build'
+  return 'base'
+}
+
+/** 统一的比赛目标一行摘要:名称（还有 N 天 · 周期），供画像/反思/日记/对话复用。 */
+export function raceGoalSummary(goal: RaceGoalContext): string {
+  if (goal.daysUntilRace < 0) return `${goal.name}（已结束 · 赛后恢复）`
+  return `${goal.name}（还有 ${goal.daysUntilRace} 天 · ${goal.phaseLabel}）`
+}
+
 export interface RaceGoalContext {
   id: string
   name: string
@@ -37,6 +65,8 @@ export interface RaceGoalContext {
   status: string
   notes: string | null
   daysUntilRace: number
+  phase: RacePhase
+  phaseLabel: string
 }
 
 function toIso(value: Date | string | number) {
@@ -49,6 +79,8 @@ function daysUntil(date: string) {
 }
 
 function toContext(row: typeof raceGoals.$inferSelect): RaceGoalContext {
+  const days = daysUntil(toIso(row.raceDate))
+  const phase = racePhase(days)
   return {
     id: row.id,
     name: row.name,
@@ -59,7 +91,9 @@ function toContext(row: typeof raceGoals.$inferSelect): RaceGoalContext {
     priority: row.priority,
     status: row.status,
     notes: row.notes ?? null,
-    daysUntilRace: daysUntil(toIso(row.raceDate)),
+    daysUntilRace: days,
+    phase,
+    phaseLabel: PHASE_LABEL[phase],
   }
 }
 

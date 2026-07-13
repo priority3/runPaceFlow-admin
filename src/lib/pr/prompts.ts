@@ -1,4 +1,5 @@
-import type { DailyContext, PrContext } from './context'
+import type { DailyContext, PrContext, RecentActivityContext } from './context'
+import { raceGoalSummary } from './race-goals'
 
 export const PR_REVIEW_PROMPT_VERSION = 'pr-activity-review-v1'
 export const PR_DAILY_PROMPT_VERSION = 'pr-daily-review-v3'
@@ -259,9 +260,7 @@ export function buildDailyReviewUserPrompt(context: DailyContext) {
     .join('\n') || '- 暂无 active 记忆'
 
   const profile = context.companionProfile
-  const goals = context.raceGoals
-    .map(goal => `- ${goal.name}（还有 ${goal.daysUntilRace} 天）`)
-    .join('\n') || '- 暂无 active 比赛目标'
+  const goals = context.raceGoals.map(goal => `- ${raceGoalSummary(goal)}`).join('\n') || '- 暂无 active 比赛目标'
 
   return `以下是你看到的信息（内部参考，别照着念，也别全用上）：
 
@@ -283,6 +282,69 @@ ${memories}
 ${goals}
 
 用户刚醒。跟数据比一比近 7 天，挑一件真正值得说的，像朋友一样发条微信给他。没什么特别的，就轻轻一句带过。`
+}
+
+// ─── 老友日记(friend diary,周期脉络 → 记忆) ────────────────────────────────
+
+export const PR_DIARY_PROMPT_VERSION = 'pr-friend-diary-v1'
+
+export function buildFriendDiarySystemPrompt() {
+  return `你是 PR —— 用户的跑步搭子、挺懂他的老朋友。现在你在写一段「老友日记」:回看他最近这一阵的训练和状态,像老朋友在心里记下"你这阵子怎么样"。
+
+产出三部分:
+- diary:2-4 句,老朋友口吻回顾本期(这阵子跑得怎么样、状态/恢复趋势、离目标近了没)。引用具体但自然,有温度不肉麻;不是体检报告,不罗列指标清单;不做医学诊断;不在结尾追问补数据。
+- observations:0-3 条本期值得记下的中性观察(简短短语,如"周中两次夜跑、周末拉长距离")。
+- memories:0-3 条真正值得长期记住的持久事实候选。仅当稳定持久才给(durable=true),拿不准就不给;type 只能是 preference/habit/goal/injury/relationship_note/risk_pattern;content 用第三人称陈述句、不带当下状态词、不照抄。
+
+只依据给你的数据和已知记忆,别编睡眠/训练/偏好/伤病/目标。有"不要默认/纠正"的内容要避开。
+
+严格只输出 JSON:{"diary":"...","observations":["..."],"memories":[{"type":"...","content":"...","durable":true,"confidence":0.7,"reason":"..."}]}。不要输出 JSON 以外的任何字符。`
+}
+
+export function buildFriendDiaryUserPrompt(input: {
+  periodLabel: string
+  daily: DailyContext
+  activities: RecentActivityContext[]
+}) {
+  const { periodLabel, daily, activities } = input
+  const acts = activities.length
+    ? activities
+        .map(
+          a =>
+            `- ${a.date}（${a.daysAgo === 0 ? '今天' : a.daysAgo === 1 ? '昨天' : `${a.daysAgo}天前`}）：${a.type} ${a.distanceKm}km / ${a.durationMin}分${a.paceText ? ` / ${a.paceText}` : ''}${a.avgHeartRate ? ` / 心率${a.avgHeartRate}` : ''}`,
+        )
+        .join('\n')
+    : '- 本期暂无运动记录'
+  const trend =
+    daily.recentHealth
+      .slice(0, 7)
+      .map(item => `${item.date} 睡${formatMinutes(item.sleepMinutes)}/${item.recoveryLabel}`)
+      .join('，') || '暂无'
+  const memories = daily.memoryItems.map(m => `- [${m.type}] ${m.content}`).join('\n') || '- 暂无 active 记忆'
+  const p = daily.companionProfile
+  const goals = daily.raceGoals.map(g => `- ${raceGoalSummary(g)}`).join('\n') || '- 暂无 active 比赛目标'
+
+  return `本期:${periodLabel}(内部参考,别照念)
+
+## 最近训练
+${acts}
+
+## 近 7 天恢复
+${trend}
+
+## 你记得关于他的(长期记忆)
+${memories}
+
+## 伙伴画像
+- 陪伴风格:${p.companionStyle.join('；') || '-'}
+- 训练偏好/风险:${p.trainingPreferences.join('；') || '-'}
+- 伤痛观察:${p.injuryWatchlist.join('；') || '-'}
+- 不应再默认:${p.doNotAssume.join('；') || '-'}
+
+## 比赛目标
+${goals}
+
+回看这一阵,像老朋友一样写下今天的日记,并提炼观察与值得长期记住的事实。只输出 JSON。`
 }
 
 export function buildRuleBasedDailyReview(context: DailyContext) {
@@ -449,6 +511,35 @@ ${text}
 """
 
 请判断并蒸馏。只输出 JSON。`
+}
+
+// ─── MemoryReconciler(LLM 语义记忆调和 —— 自我进化核心) ─────────────────────
+
+export const PR_MEMORY_RECONCILE_VERSION = 'pr-memory-reconciler-v1'
+
+export function buildMemoryReconciliationSystemPrompt() {
+  return `你是 RunPaceFlow 里 PR Agent 的「记忆整理器」(MemoryReconciler)。给你 PR 当前对这个用户的一批长期记忆(每条带 id/类型/状态/置信/证据数)。你的唯一任务:找出「讲的是同一件事」的冗余或互相矛盾的记忆,把它们收敛干净,让 PR 对用户的理解不自相矛盾、不重复。
+
+只做三件事,绝不发明新事实:
+- decay:把冗余/被取代/已过时的那条降级退役(保留信息量更高、证据更多、更近的那条)。
+- supersede:当多条讲同一件事但都不完整时,改写其中最有代表性的一条为一句更准确的合并陈述,其余用 decay 退役。
+- 什么都不做:没有明确冗余/矛盾就别动。
+
+判定与红线:
+- 只能引用给定的 memoryId,不得杜撰 id,绝不新增记忆。
+- 同一主题的多个取值(例如"常见距离 2.0 / 2.5 / 3.5 / 5.0 km")→ 合并成一个区间或最新基线,保留一条(supersede),其余 decay。
+- 直接矛盾(例如"多在午间" vs "多在夜间")→ 保留证据更多/更近的一条,或 supersede 成"训练时段不固定,在午间与夜间之间波动",另一条 decay。
+- correction(纠正)、injury(伤病)除非明显重复,否则不要动——它们关乎避坑与安全。
+- 拿不准就不动。宁可少改,不可乱并。
+
+严格只输出 JSON:{"actions":[{"op":"decay|supersede","memoryId":"mem_x","content":"(仅 supersede 时给出合并后的第三人称陈述句)","reason":"为什么这么做"}]}。没有要整理的就输出 {"actions":[]}。不要输出 JSON 以外的任何字符。`
+}
+
+export function buildMemoryReconciliationUserPrompt(listing: string) {
+  return `当前记忆(每行:[id | 类型 | 状态 | 置信 | 证据数] 内容):
+${listing}
+
+请找出冗余/矛盾并给出收敛动作。只输出 JSON。`
 }
 
 export const PR_THREAD_SUMMARY_VERSION = 'pr-thread-summary-v1'
