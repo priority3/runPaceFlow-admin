@@ -158,6 +158,15 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     placeholder: 'claude-sonnet-4-20250514',
   },
   {
+    key: 'ANTHROPIC_VISION_MODEL',
+    label: 'Claude 视觉模型',
+    description:
+      '带图片的请求改用此模型（部分网关的主力模型不支持图片，实测会直接 404）。留空则图片请求仍用主模型。',
+    category: 'ai',
+    kind: 'text',
+    placeholder: 'mimo-v2.5',
+  },
+  {
     key: 'OPENAI_API_KEY',
     label: 'OpenAI 兼容 API Key',
     description: 'OpenAI、DeepSeek、通义千问等兼容服务密钥。',

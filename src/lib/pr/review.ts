@@ -102,6 +102,7 @@ async function generateWithClaude(context: PrContext, settings: Record<string, s
   const response = await client.messages.create({
     model,
     max_tokens: 900,
+    stream: false, // Reason: 部分网关不显式传就回 SSE,SDK 会把流当字符串返回
     system: buildPrActivityReviewSystemPrompt(),
     messages: [{ role: 'user', content: buildPrActivityReviewUserPrompt(context) }],
   })
@@ -141,6 +142,7 @@ async function generateWithOpenAI(context: PrContext, settings: Record<string, s
   const response = await client.chat.completions.create({
     model,
     max_tokens: 900,
+    stream: false, // Reason: 同上,防网关默认回 SSE
     messages: [
       { role: 'system', content: buildPrActivityReviewSystemPrompt() },
       { role: 'user', content: buildPrActivityReviewUserPrompt(context) },

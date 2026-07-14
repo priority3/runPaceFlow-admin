@@ -221,6 +221,7 @@ async function generateWithClaude(input: ActivityInsightInput): Promise<AIGenera
   const response = await client.messages.create({
     model,
     max_tokens: 1024,
+    stream: false, // Reason: 部分网关不显式传就回 SSE,SDK 会把流当字符串返回
     system: buildSystemPrompt(),
     messages: [{ role: 'user', content: buildUserPrompt(input) }],
   })
@@ -262,6 +263,7 @@ async function generateWithOpenAI(input: ActivityInsightInput): Promise<AIGenera
   const response = await client.chat.completions.create({
     model,
     max_tokens: 1024,
+    stream: false, // Reason: 同上,防网关默认回 SSE
     messages: [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: buildUserPrompt(input) },

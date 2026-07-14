@@ -77,7 +77,11 @@ export async function callPrModel(
   const turns: PrModelMessage[] = typeof input === 'string' ? [{ role: 'user', content: input }] : input
 
   if (settings.ANTHROPIC_API_KEY) {
-    const model = settings.PR_REVIEW_MODEL || settings.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL
+    // Reason: 主力模型不一定支持图片(如 mimo-v2.5-pro 遇图直接 404),带图请求切
+    // ANTHROPIC_VISION_MODEL;走设置而非写死模型名,后续换模型组合零代码。
+    const textModel = settings.PR_REVIEW_MODEL || settings.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL
+    const model =
+      images.length && settings.ANTHROPIC_VISION_MODEL ? settings.ANTHROPIC_VISION_MODEL : textModel
     const client = new Anthropic({
       apiKey: settings.ANTHROPIC_API_KEY,
       ...(settings.ANTHROPIC_BASE_URL && { baseURL: settings.ANTHROPIC_BASE_URL }),
@@ -119,9 +123,12 @@ export async function callPrModel(
     const maxToolRounds = opts.maxToolRounds ?? 3
 
     // system 挂缓存断点:tools + system 是跨轮/跨会话的稳定前缀,命中后按 0.1 倍计费。
+    // Reason: stream:false 必须显式传——部分网关(实测 grok 系)不带该字段默认回 SSE,
+    // SDK 会把整个流当字符串返回,content 解析直接崩;官方 API 对显式 false 无感。
     const buildParams = (): Anthropic.MessageCreateParamsNonStreaming => ({
       model,
       max_tokens: maxTokens,
+      stream: false,
       system: useCache
         ? [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }]
         : system,
@@ -302,6 +309,7 @@ export async function callPrModel(
     const response = await client.chat.completions.create({
       model,
       max_tokens: maxTokens,
+      stream: false, // Reason: 同 Anthropic 路径,防网关默认回 SSE
       messages: [
         { role: 'system', content: system },
         ...turns.map(turn => ({ role: turn.role, content: turn.content })),
