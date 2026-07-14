@@ -53,6 +53,13 @@ export interface PrModelMessage {
   content: string
 }
 
+/** 流式增量事件(仅 Claude/Anthropic 路径生效;OpenAI 兼容路径忽略 onStream)。 */
+export type PrStreamEvent =
+  | { type: 'thinking'; delta: string }
+  | { type: 'text'; delta: string }
+  | { type: 'tool'; name: string }
+  | { type: 'text_reset' }
+
 export interface PrModelCallOptions {
   maxTokens?: number
   /** 图片附着到最后一条 user 消息(即当前这轮)。 */
@@ -64,6 +71,97 @@ export interface PrModelCallOptions {
   maxToolRounds?: number
   /** 每次工具执行后的观察钩子(写快照用),抛错不影响主流程。 */
   onToolCall?: (name: string, input: unknown, result: string) => void
+  /**
+   * 提供则 Anthropic 请求改为 stream:true,thinking/text 逐 delta 回调;
+   * 缺省时行为与从前完全一致(非流式)。工具轮若已流出 text 又转入工具调用,
+   * 会先发 text_reset 让客户端清掉半截文本。
+   */
+  onStream?: (evt: PrStreamEvent) => void
+}
+
+/**
+ * 发起一次 Anthropic 请求:无 onStream 时与 client.messages.create 完全等价;
+ * 有 onStream 时改为 stream:true,边转发 delta 边手工累积重建出同形的
+ * Anthropic.Message —— 这样工具循环/降级链/空响应重试等下游逻辑零改动。
+ * Reason: 不用 SDK 的 .stream() helper,保持 create 的 timeout/maxRetries 语义
+ * (SDK 只在收到首字节前重试,不会产生重复 delta)。
+ */
+async function createMessageMaybeStream(
+  client: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  onStream?: (evt: PrStreamEvent) => void,
+): Promise<Anthropic.Message> {
+  if (!onStream) return client.messages.create(params)
+
+  const stream = await client.messages.create({ ...params, stream: true })
+  let message: Anthropic.Message | null = null
+  const blocks: Anthropic.ContentBlock[] = []
+  const partialJson: string[] = [] // tool_use 的 input 以 JSON 碎片流入,block_stop 时整体 parse
+
+  for await (const event of stream) {
+    switch (event.type) {
+      case 'message_start':
+        message = { ...event.message, content: [] }
+        break
+      case 'content_block_start': {
+        const block = event.content_block as Anthropic.ContentBlock
+        blocks[event.index] = { ...block }
+        partialJson[event.index] = ''
+        if (block.type === 'tool_use') onStream({ type: 'tool', name: block.name })
+        break
+      }
+      case 'content_block_delta': {
+        const block = blocks[event.index]
+        const delta = event.delta
+        if (delta.type === 'thinking_delta') {
+          if (block?.type === 'thinking') block.thinking += delta.thinking
+          onStream({ type: 'thinking', delta: delta.thinking })
+        } else if (delta.type === 'text_delta') {
+          if (block?.type === 'text') block.text += delta.text
+          onStream({ type: 'text', delta: delta.text })
+        } else if (delta.type === 'input_json_delta') {
+          partialJson[event.index] += delta.partial_json
+        } else if (delta.type === 'signature_delta') {
+          // thinking 块签名:历史回灌时 API 要求带上,照单累积
+          if (block?.type === 'thinking') block.signature = (block.signature || '') + delta.signature
+        }
+        break
+      }
+      case 'content_block_stop': {
+        const block = blocks[event.index]
+        if (block?.type === 'tool_use') {
+          try {
+            block.input = JSON.parse(partialJson[event.index] || '{}')
+          } catch {
+            block.input = {}
+          }
+        }
+        break
+      }
+      case 'message_delta':
+        if (message) {
+          message.stop_reason = event.delta.stop_reason ?? message.stop_reason
+          message.stop_sequence = event.delta.stop_sequence ?? message.stop_sequence
+          if (event.usage) {
+            // MessageDeltaUsage 字段可空,只合并有值的(Usage 类型不接受 null)
+            const usageDelta = event.usage
+            message.usage = {
+              ...message.usage,
+              ...(usageDelta.input_tokens != null && { input_tokens: usageDelta.input_tokens }),
+              ...(usageDelta.output_tokens != null && { output_tokens: usageDelta.output_tokens }),
+              ...(usageDelta.cache_read_input_tokens != null && { cache_read_input_tokens: usageDelta.cache_read_input_tokens }),
+              ...(usageDelta.cache_creation_input_tokens != null && { cache_creation_input_tokens: usageDelta.cache_creation_input_tokens }),
+            }
+          }
+        }
+        break
+      // message_stop:无事可做,循环自然结束
+    }
+  }
+
+  if (!message) throw new Error('Stream ended without message_start')
+  message.content = blocks.filter(Boolean)
+  return message
 }
 
 export async function callPrModel(
@@ -163,7 +261,25 @@ export async function callPrModel(
     let interimText = '' // 工具轮里模型顺带说的话;空响应兜底时好过整句丢掉
     let emptyRetries = 0
     const MAX_EMPTY_RETRIES = 2 // 容忍网关偶发空响应的突发,但有上限保证终止
+
+    // 流式:跟踪本轮是否已流出 text;转入工具轮/降级重试/空响应重试时,
+    // 先发 text_reset 让客户端清掉半截文本,只保留最终轮的正文。
+    let textEmittedThisRound = false
+    const streamHook: PrModelCallOptions['onStream'] = opts.onStream
+      ? evt => {
+          if (evt.type === 'text') textEmittedThisRound = true
+          opts.onStream!(evt)
+        }
+      : undefined
+    const resetStreamedText = () => {
+      if (textEmittedThisRound && opts.onStream) {
+        opts.onStream({ type: 'text_reset' })
+        textEmittedThisRound = false
+      }
+    }
+
     for (let round = 0; round <= maxToolRounds + 1; round++) {
+      textEmittedThisRound = false
       const response: Anthropic.Message = await withSpan(
         'llm.claude',
         'LLM',
@@ -175,23 +291,26 @@ export async function callPrModel(
         async span => {
           let res: Anthropic.Message
           try {
-            res = await client.messages.create(buildParams())
+            res = await createMessageMaybeStream(client, buildParams(), streamHook)
           } catch (error) {
             if (round === 0 && useCache && isBadRequest(error)) {
               console.warn('[pr-model] 400,疑似 cache_control 不被支持,去缓存重试:', (error as Error).message)
               useCache = false
+              resetStreamedText()
               try {
-                res = await client.messages.create(buildParams())
+                res = await createMessageMaybeStream(client, buildParams(), streamHook)
               } catch (retryError) {
                 if (!useTools || !isBadRequest(retryError)) throw retryError
                 console.warn('[pr-model] 仍 400,疑似 tools 不被支持,去工具重试:', (retryError as Error).message)
                 useTools = false
-                res = await client.messages.create(buildParams())
+                resetStreamedText()
+                res = await createMessageMaybeStream(client, buildParams(), streamHook)
               }
             } else if (round === 0 && useTools && isBadRequest(error)) {
               console.warn('[pr-model] 400,疑似 tools 不被支持,去工具重试:', (error as Error).message)
               useTools = false
-              res = await client.messages.create(buildParams())
+              resetStreamedText()
+              res = await createMessageMaybeStream(client, buildParams(), streamHook)
             } else {
               throw error
             }
@@ -226,6 +345,7 @@ export async function callPrModel(
 
       if (toolUseBlocks.length > 0) {
         if (textBlock && textBlock.type === 'text' && textBlock.text.trim()) interimText = textBlock.text.trim()
+        resetStreamedText() // 本轮流出的 text 只是工具前的过场白,客户端清掉等最终轮
         messages.push({ role: 'assistant', content: response.content })
         const exhausted = round >= maxToolRounds
         const results: Anthropic.ToolResultBlockParam[] = []
@@ -269,6 +389,7 @@ export async function callPrModel(
       if (emptyRetries < MAX_EMPTY_RETRIES) {
         emptyRetries++
         round--
+        resetStreamedText() // 万一空响应前流出过空白 delta,一并清掉
         console.warn('[pr-model] 空响应,重试 (%d/%d, stop=%s)', emptyRetries, MAX_EMPTY_RETRIES, response.stop_reason)
         continue
       }

@@ -15,7 +15,7 @@ import { buildCompanionProfileContext, getLatestActivityPerType, getRecentActivi
 import { evaluateChatReply, type ChatEvalContext } from './evaluator'
 import { getLatestHealthDailyMetrics } from './health'
 import { applyMemoryPatch, curateMemoryPatches, listRelevantContextMemories } from './memory'
-import { callPrModel, parseModelJson, type PrModelMessage } from './model'
+import { callPrModel, parseModelJson, type PrModelMessage, type PrStreamEvent } from './model'
 import {
   buildChatContextTurn,
   buildChatRewriteNote,
@@ -162,7 +162,15 @@ export async function getRecentThreadId(withinMs = 24 * 60 * 60 * 1000): Promise
   return Date.now() - row.lastMessageAt.getTime() <= withinMs ? row.id : null
 }
 
-export async function chatWithPr(input: { message: string; threadId?: string | null; imageUrl?: string | null }) {
+export interface ChatWithPrInput {
+  message: string
+  threadId?: string | null
+  imageUrl?: string | null
+  /** 流式增量回调(thinking/text/tool/text_reset),透传给 FriendPersona;重写轮不流。 */
+  onStream?: (evt: PrStreamEvent) => void
+}
+
+export async function chatWithPr(input: ChatWithPrInput) {
   // 根 span:整条对话编排(Phoenix 里按 session.id=threadId 聚合成会话视图)
   return withSpan(
     'pr.chat',
@@ -172,10 +180,7 @@ export async function chatWithPr(input: { message: string; threadId?: string | n
   )
 }
 
-async function chatWithPrInner(
-  input: { message: string; threadId?: string | null; imageUrl?: string | null },
-  rootSpan: Span,
-) {
+async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
   const db = await getActivitiesDb()
   const now = new Date()
   let threadId = input.threadId ?? null
@@ -311,7 +316,7 @@ async function chatWithPrInner(
       `- ${act.date}（${daysAgoLabel(act.daysAgo)}）：${activityTypeLabel[act.type] ?? act.type} ${act.distanceKm} km，用时 ${act.durationMin} 分钟${act.paceText ? `，配速 ${act.paceText}/km` : ''}${act.avgHeartRate ? `，平均心率 ${act.avgHeartRate}` : ''}`
     const runLines = recentActivities.map(activityLine)
     // 「最近 N 条」窗口可能全被单一类型占满(比如连续骑行),把每种类型的最近一次补进来,
-    // 并显式给出"距上次跑步 N 天"——跑步搭子最关键的事实,不能让模型自己推。
+    // 并显式给出"距上次跑步 N 天"——运动伙伴最关键的事实,不能让模型自己推。
     const lastRun = latestPerType.find(act => act.type === 'running')
     if (lastRun) runLines.unshift(`- 距上次跑步已 ${lastRun.daysAgo} 天`)
     const extraPerType = latestPerType.filter(
@@ -379,7 +384,9 @@ async function chatWithPrInner(
         void writeSnapshot(runId, 'tool_use', { name, input: toolInput, result: result.slice(0, 600) }).catch(() => {})
       },
     }
-    const persona = () => callPrModel(buildChatSystemPrompt(), turns, modelOpts)
+    // persona 带流式回调;rewrite 不带 —— 二稿 delta 交错会把客户端已收起的思考/正文搅乱,
+    // 改写场景由路由层对比 streamedText 与最终 answer 后发 replace 整段替换。
+    const persona = () => callPrModel(buildChatSystemPrompt(), turns, { ...modelOpts, onStream: input.onStream })
     // 重写 = 追加一轮(assistant 初稿 + 系统评审),模型看着自己写的定向修,而不是丢稿盲写。
     // images 会附着到最后一条 user(评审轮),模型重写时仍看得到图。
     const rewrite = (draft: string, rewriteWarnings: string[]) =>

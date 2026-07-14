@@ -6,6 +6,14 @@ interface Msg {
   role: 'user' | 'assistant'
   content: string
   imageUrl?: string | null
+  /** 模型思考过程(流式收集);流式期间实时显示,出正文后收起成「已思考 Ns」胶囊 */
+  thinking?: string
+  thinkingSeconds?: number
+  thinkingOpen?: boolean
+  /** 该条 assistant 消息仍在流式接收中 */
+  streaming?: boolean
+  /** 工具调用提示(查数据中…),出正文后清除 */
+  toolNote?: string | null
 }
 interface Thread {
   id: string
@@ -179,6 +187,10 @@ export default function PrChatPage() {
     localStorage.setItem('pr_chat_thread', id)
   }
 
+  function toggleThinking(index: number) {
+    setMessages(ms => ms.map((m, i) => (i === index ? { ...m, thinkingOpen: !m.thinkingOpen } : m)))
+  }
+
   function newChat() {
     setDrawerOpen(false)
     setThreadId(null)
@@ -242,27 +254,132 @@ export default function PrChatPage() {
     setSending(true)
     const controller = new AbortController()
     abortRef.current = controller
+
+    // 流式渲染:首个 SSE 事件到达时才追加 assistant 消息(此前显示三点 loading),
+    // 之后所有 delta 都更新最后一条 streaming 消息。
+    let assistantAdded = false
+    let thinkStart = 0
+    const ensureAssistant = () => {
+      if (assistantAdded) return
+      assistantAdded = true
+      thinkStart = Date.now()
+      setMessages(ms => [...ms, { role: 'assistant', content: '', thinking: '', streaming: true }])
+    }
+    const patchLast = (patch: (m: Msg) => Msg) =>
+      setMessages(ms => {
+        const last = ms[ms.length - 1]
+        if (!last || last.role !== 'assistant' || !last.streaming) return ms
+        return [...ms.slice(0, -1), patch(last)]
+      })
+    const applyResult = (result: { threadId?: string; answer?: string }) => {
+      if (result.threadId && result.threadId !== threadId) {
+        setThreadId(result.threadId)
+        localStorage.setItem('pr_chat_thread', result.threadId)
+      }
+      if (isNew) void fetchThreads() // 新会话 → 刷新列表让它出现
+    }
+
     try {
       const r = await fetch('/api/pr/chat', {
         method: 'POST',
         headers: { ...authHeader(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, threadId, imageUrl }),
+        body: JSON.stringify({ message: text, threadId, imageUrl, stream: true }),
         signal: controller.signal,
       })
       if (r.status === 401) { setAuthError(true); setSending(false); return }
-      const j = await r.json()
-      if (j.threadId && j.threadId !== threadId) {
-        setThreadId(j.threadId)
-        localStorage.setItem('pr_chat_thread', j.threadId)
+
+      // 服务端未按流式返回(旧版本/错误页)→ 按原 JSON 逻辑兜底
+      const contentType = r.headers.get('content-type') ?? ''
+      if (!contentType.includes('text/event-stream') || !r.body) {
+        const j = await r.json()
+        applyResult(j)
+        setMessages(m => [...m, { role: 'assistant', content: j.answer ?? '(没有回复)' }])
+        abortRef.current = null
+        setSending(false)
+        return
       }
-      setMessages(m => [...m, { role: 'assistant', content: j.answer ?? '(没有回复)' }])
-      if (isNew) void fetchThreads() // 新会话 → 刷新列表让它出现
+
+      // 手写 SSE 解析:按 \n\n 分帧,残包跨 chunk 缓冲;心跳注释行(: ka)直接跳过
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      let result: { threadId?: string; answer?: string } | null = null
+      let streamError: string | null = null
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let sep: number
+        while ((sep = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, sep)
+          buf = buf.slice(sep + 2)
+          if (!frame || frame.startsWith(':')) continue
+          let event = 'message'
+          let data = ''
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) event = line.slice(6).trim()
+            else if (line.startsWith('data:')) data += line.slice(5).trim()
+          }
+          let payload: { delta?: string; name?: string; message?: string; threadId?: string; answer?: string }
+          try {
+            payload = data ? JSON.parse(data) : {}
+          } catch {
+            continue
+          }
+          if (event === 'thinking') {
+            ensureAssistant()
+            patchLast(m => ({ ...m, thinking: (m.thinking ?? '') + (payload.delta ?? '') }))
+          } else if (event === 'text') {
+            ensureAssistant()
+            patchLast(m => ({
+              ...m,
+              content: m.content + (payload.delta ?? ''),
+              toolNote: null,
+              // 首个正文 delta 时定格思考用时(思考块随之收起)
+              thinkingSeconds: m.thinkingSeconds ?? Math.max(1, Math.round((Date.now() - thinkStart) / 1000)),
+            }))
+          } else if (event === 'tool') {
+            ensureAssistant()
+            patchLast(m => ({ ...m, toolNote: '查数据中…' }))
+          } else if (event === 'text_reset') {
+            patchLast(m => ({ ...m, content: '' }))
+          } else if (event === 'replace') {
+            ensureAssistant()
+            patchLast(m => ({ ...m, content: payload.answer ?? '' }))
+          } else if (event === 'done') {
+            result = payload
+          } else if (event === 'error') {
+            streamError = payload.message || '未知错误'
+          }
+        }
+      }
+
+      if (result) {
+        const answer = result.answer
+        if (assistantAdded) {
+          patchLast(m => ({ ...m, streaming: false, toolNote: null, content: m.content || (answer ?? '(没有回复)') }))
+        } else {
+          setMessages(m => [...m, { role: 'assistant', content: answer ?? '(没有回复)' }])
+        }
+        applyResult(result)
+      } else {
+        // 没等到 done(服务端 error 事件或连接中断)
+        const note = streamError ? `(出错了:${streamError})` : '(回复中断,重新进入会话可见完整内容。)'
+        if (assistantAdded) {
+          patchLast(m => ({ ...m, streaming: false, toolNote: null, content: m.content ? `${m.content}\n${note}` : note }))
+        } else {
+          setMessages(m => [...m, { role: 'assistant', content: streamError ? `出错了:${streamError}` : '网络出错了，稍后再试。' }])
+        }
+      }
     } catch (error) {
       // 用户主动中断:服务端可能仍会完成并落库,重进会话可见,不当成网络错误
-      if ((error as Error).name === 'AbortError') {
-        setMessages(m => [...m, { role: 'assistant', content: '（已停止等待。PR 可能稍后仍会回复，重新进入会话可见。）' }])
+      const note = (error as Error).name === 'AbortError'
+        ? '（已停止等待。PR 可能稍后仍会回复，重新进入会话可见。）'
+        : '网络出错了，稍后再试。'
+      if (assistantAdded) {
+        patchLast(m => ({ ...m, streaming: false, toolNote: null, content: m.content ? `${m.content}\n${note}` : note }))
       } else {
-        setMessages(m => [...m, { role: 'assistant', content: '网络出错了，稍后再试。' }])
+        setMessages(m => [...m, { role: 'assistant', content: note }])
       }
     }
     abortRef.current = null
@@ -335,7 +452,7 @@ export default function PrChatPage() {
           <div className="truncate text-[15px] font-medium tracking-tight">{currentTitle}</div>
           <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--pr-muted)' }}>
             <span className={`pr-dot-solid ${sending ? 'pr-pulse' : ''}`} style={{ background: 'var(--pr-accent)' }} />
-            {sending ? '正在输入…' : 'PR · 你的跑步搭子'}
+            {sending ? '正在输入…' : 'PR · 你的运动伙伴'}
           </div>
         </div>
         <button type="button" onClick={newChat} className="pr-tap rounded-lg p-1.5" style={{ color: 'var(--pr-text-2)' }} aria-label="新对话">
@@ -428,6 +545,8 @@ export default function PrChatPage() {
             }
             // 连续的 PR 消息只在第一条带头像(iMessage 式分组),后续用占位对齐
             const firstOfGroup = i === 0 || messages[i - 1].role === 'user'
+            // 思考展示:流式且正文未开始 → 实时暗色滚动;否则收起成「已思考 Ns」胶囊(点击展开)
+            const thinkingLive = Boolean(m.streaming && m.thinking && !m.content)
             return (
               <div key={i} className="pr-msg flex items-end gap-2" style={{ animationDelay: delay }}>
                 {firstOfGroup ? <PrAvatar /> : <div className="w-7 shrink-0" />}
@@ -435,6 +554,33 @@ export default function PrChatPage() {
                   {m.imageUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={imgSrc(m.imageUrl)} alt="图片" className="block max-h-72 w-full object-cover" />
+                  )}
+                  {thinkingLive && (
+                    <div className="whitespace-pre-wrap break-words px-3.5 py-2.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--pr-muted)' }}>
+                      {m.thinking}
+                    </div>
+                  )}
+                  {!thinkingLive && m.thinking && (
+                    <button
+                      type="button"
+                      onClick={() => toggleThinking(i)}
+                      className="pr-tap flex items-center gap-1 px-3.5 pt-2.5 text-[12px]"
+                      style={{ color: 'var(--pr-muted)' }}
+                    >
+                      已思考 {m.thinkingSeconds ?? 0} 秒
+                      <span style={{ fontSize: 9 }}>{m.thinkingOpen ? '▲' : '▼'}</span>
+                    </button>
+                  )}
+                  {!thinkingLive && m.thinking && m.thinkingOpen && (
+                    <div className="whitespace-pre-wrap break-words px-3.5 pt-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--pr-muted)' }}>
+                      {m.thinking}
+                    </div>
+                  )}
+                  {m.toolNote && m.streaming && (
+                    <div className="flex items-center gap-1.5 px-3.5 pt-2 text-[12px]" style={{ color: 'var(--pr-muted)' }}>
+                      <Spinner size={12} />
+                      {m.toolNote}
+                    </div>
                   )}
                   {m.content && m.content !== '[图片]' && (
                     <div className="whitespace-pre-wrap break-words px-3.5 py-2.5 text-[15px] leading-relaxed">{m.content}</div>
@@ -444,7 +590,8 @@ export default function PrChatPage() {
             )
           })}
 
-          {sending && (
+          {/* 三点 loading 只显示到首个流式事件到达(之后由思考/正文接管) */}
+          {sending && !(messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.streaming) && (
             <div className="pr-msg flex items-end gap-2">
               <PrAvatar />
               <div className="flex items-center gap-1.5 px-4 py-3.5" style={{ background: 'var(--pr-ai-bg)', borderRadius: '18px 18px 18px 6px' }}>

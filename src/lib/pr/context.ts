@@ -397,7 +397,7 @@ export async function getRecentActivityContext(limit = 5): Promise<RecentActivit
 
 /**
  * 每种运动类型各自的最近一次。补"最近 N 条"窗口的盲区:比如最近连续骑行,
- * 跑步被挤出窗口,PR 会答"查不到跑步记录"——但对跑步搭子来说,
+ * 跑步被挤出窗口,PR 会答"查不到跑步记录"——但对运动伙伴来说,
  * 「距上次跑步多久了」恰恰是最重要的事实。
  */
 export async function getLatestActivityPerType(): Promise<RecentActivityContext[]> {
