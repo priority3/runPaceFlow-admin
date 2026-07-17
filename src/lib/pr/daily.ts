@@ -106,7 +106,7 @@ export async function generateDailyReview(options: {
       const generated = await callPrModel(
         buildDailyReviewSystemPrompt(),
         buildDailyReviewUserPrompt(context),
-        { maxTokens: 700 },
+        { maxTokens: 2000 },
       )
       const trimmed = generated.content.trim()
       // Low floor on purpose: a genuine companion reply can be a single short line

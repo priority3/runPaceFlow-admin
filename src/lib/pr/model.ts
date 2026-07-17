@@ -170,7 +170,7 @@ export async function callPrModel(
   opts: PrModelCallOptions = {},
 ): Promise<PrModelResult> {
   const settings = await getRuntimeSettings({ force: true })
-  const maxTokens = opts.maxTokens ?? 900
+  const maxTokens = opts.maxTokens ?? 2000
   const images = opts.images ?? []
   const turns: PrModelMessage[] = typeof input === 'string' ? [{ role: 'user', content: input }] : input
 

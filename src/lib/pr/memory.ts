@@ -173,7 +173,7 @@ export async function curateMemoryPatches(input: {
     const generated = await callPrModel(
       buildMemoryCurationSystemPrompt(),
       buildMemoryCurationUserPrompt(raw, input.source, input.context),
-      { maxTokens: 500 },
+      { maxTokens: 2000 },
     )
     parsed = parseModelJson(generated.content) as { memories?: unknown }
   } catch (error) {
@@ -702,7 +702,7 @@ export async function reconcileMemories(
     const generated = await callPrModel(
       buildMemoryReconciliationSystemPrompt(),
       buildMemoryReconciliationUserPrompt(listing),
-      { maxTokens: 600 },
+      { maxTokens: 2000 },
     )
     const parsed = parseModelJson(generated.content) as { actions?: unknown }
     actions = Array.isArray(parsed?.actions) ? (parsed.actions as Array<Record<string, unknown>>) : []

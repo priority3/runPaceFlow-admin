@@ -33,6 +33,14 @@ type ChatImage = { base64: string; mediaType: 'image/jpeg' | 'image/png' | 'imag
 
 const PR_CHAT_BUILDER_VERSION = 'pr-chat-v2'
 
+// 对话生成的 token 预算。可用 PR_CHAT_MAX_TOKENS 覆盖。
+// Reason: 现网关模型 mimo-v2.5-pro 是 thinking 型,会先把预算花在 thinking 上;旧值 500/160 太小
+// → 频繁只产出 thinking 块、正文为空(生产日志刷「空响应,重试 stop=max_tokens blocks=[thinking]」+
+// 会话摘要失败)。上调默认到 2000 让正文能完整产出(评测验证 2000+ 稳定出正文);仍保留
+// 空响应重试兜底。若换回非 thinking 模型可用 env 调低。
+const CHAT_MAX_TOKENS = Number(process.env.PR_CHAT_MAX_TOKENS) || 2000
+const THREAD_SUMMARY_MAX_TOKENS = Number(process.env.PR_CHAT_MAX_TOKENS) || 2000
+
 function serialize(value: unknown) {
   return JSON.stringify(value)
 }
@@ -125,7 +133,7 @@ async function refreshThreadSummaryInBackground(runId: string, threadId: string)
     const generated = await callPrModel(
       buildThreadSummarySystemPrompt(),
       buildThreadSummaryUserPrompt(transcript),
-      { maxTokens: 160 },
+      { maxTokens: THREAD_SUMMARY_MAX_TOKENS },
     )
     const parsed = parseModelJson(generated.content) as { title?: unknown; summary?: unknown }
     const title = typeof parsed.title === 'string' ? parsed.title.trim().replace(/["「」『』]/g, '').slice(0, 16) : ''
@@ -375,7 +383,7 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     // FriendPersona 带只读工具:快照不够时自己查库(每次调用写 tool_use 快照可回放)
     const toolCalls: Array<{ name: string; input: unknown; resultPreview?: string }> = []
     const modelOpts = {
-      maxTokens: 500,
+      maxTokens: CHAT_MAX_TOKENS,
       images,
       tools: PR_CHAT_TOOLS,
       executeTool: executePrChatTool,

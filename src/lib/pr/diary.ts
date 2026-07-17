@@ -130,7 +130,7 @@ export async function generateFriendDiary(
     const generated = await callPrModel(
       buildFriendDiarySystemPrompt(),
       buildFriendDiaryUserPrompt({ periodLabel, daily, activities }),
-      { maxTokens: 700 },
+      { maxTokens: 2000 },
     )
     const parsed = parseModelJson(generated.content) as {
       diary?: unknown

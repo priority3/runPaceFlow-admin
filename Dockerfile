@@ -22,6 +22,12 @@ ENV NODE_ENV=production
 ENV PORT=3030
 ENV HOSTNAME="0.0.0.0"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 关键:把「稳定且昂贵」的层(系统库 / ws / Chromium)放在「应用代码 COPY」之前。
+# 这样改代码重建时,这些层能命中缓存 —— 不再每次重下 674MB Chromium、重装 ws,
+# 既不卡网络也不让镜像每次多长 ~1.8GB(旧顺序里它们在 COPY 之后,代码一变就全部失效重造)。
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Chromium 运行所需系统库(赛事匹配用 Playwright 启动 Chromium 爬 zuicool.com)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 \
@@ -30,22 +36,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 libxfixes3 libxkbcommon0 libxrandr2 wget \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
-
-# @libsql 运行时需要 ws(standalone 没打包)
-# Reason: registry.npmjs.org 在本机(heyun/国内)只有 AAAA 记录,npm 走 IPv6 会长时间卡死;
-# 改用 npmmirror 镜像(有 IPv4、国内快),并设置 fetch 超时/重试,避免构建挂在这一步。
-RUN npm install ws --no-save --no-audit --no-fund \
-      --registry=https://registry.npmmirror.com --fetch-timeout=120000 --fetch-retries=5 2>/dev/null || \
+# @libsql 运行时需要 ws(standalone 没打包)。在「空 node_modules」上装 → 层很小
+# (旧顺序把它放在 COPY standalone 之后,会在大 node_modules 上 churn 出 ~1.1GB 的层);
+# 之后的 COPY standalone 会合并 node_modules,ws 会保留。
+# Reason: heyun 上 npm 会走 IPv6 卡死 → 用 npmmirror(有 IPv4)+ NODE_OPTIONS ipv4first + fail-fast。
+RUN NODE_OPTIONS=--dns-result-order=ipv4first npm install ws --no-save --no-audit --no-fund \
+      --registry=https://registry.npmmirror.com --fetch-timeout=60000 --fetch-retries=3 || \
     (npm init -y >/dev/null 2>&1 && \
-     npm install ws --no-audit --no-fund --registry=https://registry.npmmirror.com --fetch-timeout=120000)
-# 装 Playwright Chromium 到固定路径
+     NODE_OPTIONS=--dns-result-order=ipv4first npm install ws --no-audit --no-fund \
+       --registry=https://registry.npmmirror.com --fetch-timeout=60000 --fetch-retries=3)
+
+# Playwright Chromium 到固定路径(稳定,放应用代码之前以便缓存)
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
 RUN npx --yes playwright@1.61.0 install chromium
 
 RUN mkdir -p /app/data
+
+# ── 应用产物:每次都变,放最后 —— 只让这几层随代码失效 ──
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 
 EXPOSE 3030
 CMD ["node", "server.js"]
