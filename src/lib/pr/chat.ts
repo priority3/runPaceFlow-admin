@@ -1,37 +1,38 @@
 import { SpanStatusCode, type Span } from '@opentelemetry/api'
-import { desc, eq, sql } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
 import { clip, OI, withSpan } from '@/lib/observability/trace'
 import {
   agentRuns,
-  agentStateSnapshots,
   conversationMessages,
   conversationThreads,
 } from '@/lib/db/activities-schema'
 import { generateId } from '@/lib/utils'
 
-import { buildCompanionProfileContext, getLatestActivityPerType, getRecentActivityContext } from './context'
+import {
+  curateChatMemoryInBackground,
+  refreshThreadSummaryInBackground,
+  writeSnapshot,
+} from './chat-background'
+import type { CompanionProfileContext } from './context'
 import { evaluateChatReply, type ChatEvalContext } from './evaluator'
-import { getLatestHealthDailyMetrics } from './health'
-import { applyMemoryPatch, curateMemoryPatches, listRelevantContextMemories } from './memory'
-import { callPrModel, parseModelJson, type PrModelMessage, type PrStreamEvent } from './model'
+import type { MemoryContext } from './memory'
+import { callPrModel, type PrModelMessage, type PrStreamEvent } from './model'
 import {
   buildChatContextTurn,
   buildChatRewriteNote,
   buildChatSystemPrompt,
   buildRuleBasedChatReply,
-  buildThreadSummarySystemPrompt,
-  buildThreadSummaryUserPrompt,
-} from './prompts'
-import { getRaceGoalContext, raceGoalSummary } from './race-goals'
-import { retrieveKnowledge } from './rag'
-import { executePrChatTool, PR_CHAT_TOOLS } from './tools'
+} from './prompts-chat'
+import { executeProviderTool, loadContextBlocks, providerTools } from './providers/registry'
+import type { KnowledgeContext } from './rag'
 import { readImageUpload, uploadNameFromUrl } from './uploads'
 
 type ChatImage = { base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' }
 
-const PR_CHAT_BUILDER_VERSION = 'pr-chat-v2'
+// v3:上下文装配收敛为 ContextProvider 注册表(providers/),新增环境感知维度。
+const PR_CHAT_BUILDER_VERSION = 'pr-chat-v3'
 
 // 对话生成的 token 预算。可用 PR_CHAT_MAX_TOKENS 覆盖。
 // Reason: 现网关模型 mimo-v2.5-pro 是 thinking 型,会先把预算花在 thinking 上;旧值 500/160 太小
@@ -39,7 +40,6 @@ const PR_CHAT_BUILDER_VERSION = 'pr-chat-v2'
 // 会话摘要失败)。上调默认到 2000 让正文能完整产出(评测验证 2000+ 稳定出正文);仍保留
 // 空响应重试兜底。若换回非 thinking 模型可用 env 调低。
 const CHAT_MAX_TOKENS = Number(process.env.PR_CHAT_MAX_TOKENS) || 2000
-const THREAD_SUMMARY_MAX_TOKENS = Number(process.env.PR_CHAT_MAX_TOKENS) || 2000
 
 function serialize(value: unknown) {
   return JSON.stringify(value)
@@ -47,110 +47,6 @@ function serialize(value: unknown) {
 
 function titleFromMessage(message: string) {
   return message.trim().slice(0, 36) || 'PR 对话'
-}
-
-async function writeSnapshot(runId: string, step: string, state: unknown) {
-  const db = await getActivitiesDb()
-  await db.insert(agentStateSnapshots).values({
-    id: generateId('snap'),
-    runId,
-    step,
-    stateJson: serialize(state),
-  })
-}
-
-/**
- * MemoryCurator 后台任务:把本轮用户消息交给 LLM 蒸馏成候选记忆并落库。
- * 独立于回复路径运行(见 chatWithPr 里的 void 调用),失败只记日志、不影响对话。
- */
-async function curateChatMemoryInBackground(
-  runId: string,
-  userMessageId: string,
-  message: string,
-  history: Array<{ role: string; content: string }>,
-) {
-  return withSpan('pr.curate_memory', 'CHAIN', { 'pr.run_id': runId, [OI.INPUT]: clip(message, 1000) }, async span => {
-    const context = history.length
-      ? history.map(turn => `${turn.role === 'assistant' ? 'PR' : '用户'}：${turn.content}`).join('\n')
-      : null
-    const patches = await curateMemoryPatches({
-      source: 'conversation_message',
-      refId: userMessageId,
-      text: message,
-      context,
-    })
-    const learnedMemoryIds: string[] = []
-    for (const [index, patch] of patches.entries()) {
-      try {
-        learnedMemoryIds.push(
-          await applyMemoryPatch(patch, {
-            actor: 'user',
-            idempotencyKey: `chat:${userMessageId}:memory:${index}`,
-            runId,
-          }),
-        )
-      } catch (error) {
-        console.warn('[pr-chat] 记忆写入失败:', (error as Error).message)
-      }
-    }
-    span.setAttribute(OI.OUTPUT, JSON.stringify({ patchCount: patches.length, learned: learnedMemoryIds.length }))
-    await writeSnapshot(runId, 'curate_memory', { learnedMemoryIds, patchCount: patches.length })
-  })
-}
-
-const THREAD_SUMMARY_REFRESH_EVERY = 10
-
-/**
- * 会话标题/摘要后台任务:首轮结束后生成一次,之后每 5 轮(10 条消息)随话题漂移刷新,
- * 写回 conversation_threads.title/summary。失败只记日志——列表兜底显示首句截断标题。
- */
-async function refreshThreadSummaryInBackground(runId: string, threadId: string) {
-  return withSpan('pr.thread_summary', 'CHAIN', { 'pr.run_id': runId, [OI.SESSION_ID]: threadId }, async span => {
-    const db = await getActivitiesDb()
-    const [countRow] = await db
-      .select({ total: sql<number>`count(*)` })
-      .from(conversationMessages)
-      .where(eq(conversationMessages.threadId, threadId))
-    const total = Number(countRow?.total ?? 0)
-    // Reason: 每条消息都调 LLM 太贵;首轮(2 条)先给准确标题,其后仅在整刷新周期时重算。
-    if (total !== 2 && (total === 0 || total % THREAD_SUMMARY_REFRESH_EVERY !== 0)) {
-      span.setAttribute(OI.OUTPUT, `skipped (total=${total})`)
-      return
-    }
-
-    const rows = await db
-      .select()
-      .from(conversationMessages)
-      .where(eq(conversationMessages.threadId, threadId))
-      .orderBy(desc(conversationMessages.createdAt))
-      .limit(12)
-    const transcript = rows
-      .reverse()
-      .map(message => `${message.role === 'assistant' ? 'PR' : '用户'}：${message.content.slice(0, 160)}`)
-      .join('\n')
-    if (!transcript) return
-
-    const generated = await callPrModel(
-      buildThreadSummarySystemPrompt(),
-      buildThreadSummaryUserPrompt(transcript),
-      { maxTokens: THREAD_SUMMARY_MAX_TOKENS },
-    )
-    const parsed = parseModelJson(generated.content) as { title?: unknown; summary?: unknown }
-    const title = typeof parsed.title === 'string' ? parsed.title.trim().replace(/["「」『』]/g, '').slice(0, 16) : ''
-    const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : ''
-    if (!title && !summary) return
-
-    await db
-      .update(conversationThreads)
-      .set({
-        ...(title ? { title } : {}),
-        ...(summary ? { summary } : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(conversationThreads.id, threadId))
-    span.setAttribute(OI.OUTPUT, JSON.stringify({ total, title, summary }))
-    await writeSnapshot(runId, 'summarize_thread', { total, title, summary })
-  })
 }
 
 /**
@@ -244,40 +140,45 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
   })
 
   try {
-    // ── build_context (FactLoader + FeatureBuilder + MemoryRetriever + KnowledgeRetriever) ──
-    // 每个来源独立降级:RAG/记忆/健康/目标/画像任一失败都不该让对话挂掉。
-    const [memoryItems, knowledge, recentMessages, recentHealth, raceGoals, companionProfile, recentActivities, latestPerType] =
-      await withSpan('pr.build_context', 'CHAIN', {}, async span => {
-        const results = await Promise.all([
-          listRelevantContextMemories(input.message, 6).catch(() => []),
-          retrieveKnowledge(input.message, 3).catch(() => []),
-          db
-            .select()
-            .from(conversationMessages)
-            .where(eq(conversationMessages.threadId, threadId))
-            .orderBy(desc(conversationMessages.createdAt))
-            .limit(6),
-          getLatestHealthDailyMetrics(1).catch(() => []),
-          getRaceGoalContext(3).catch(() => []),
-          buildCompanionProfileContext().catch(() => null),
-          getRecentActivityContext(5).catch(() => []),
-          getLatestActivityPerType().catch(() => []),
-        ])
-        span.setAttribute(
-          OI.OUTPUT,
-          JSON.stringify({
-            memories: results[0].length,
-            knowledge: results[1].length,
-            historyRows: results[2].length,
-            healthDays: results[3].length,
-            raceGoals: results[4].length,
-            hasProfile: Boolean(results[5]),
-            recentActivities: results[6].length,
-            latestPerType: results[7].length,
-          }),
-        )
-        return results
-      })
+    // 今天日期(Asia/Shanghai)——不给这行,模型的所有时间推理只能靠上下文里的日期反猜
+    const todayDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+    const todayWeekday = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }).format(new Date())
+    const today = `${todayDate}（${todayWeekday}，Asia/Shanghai）`
+
+    // ── build_context (ContextProvider 注册表统一装配 + 会话历史) ──
+    // 每个 provider 在 registry 内独立超时/降级:任一失败都不该让对话挂掉。
+    const [{ blocks, outcomes }, recentMessages] = await withSpan('pr.build_context', 'CHAIN', {}, async span => {
+      const results = await Promise.all([
+        loadContextBlocks({ message: input.message, today, hasImage: images.length > 0 }),
+        db
+          .select()
+          .from(conversationMessages)
+          .where(eq(conversationMessages.threadId, threadId))
+          .orderBy(desc(conversationMessages.createdAt))
+          .limit(6),
+      ])
+      span.setAttribute(
+        OI.OUTPUT,
+        JSON.stringify({
+          blocks: results[0].blocks.map(block => block.key),
+          outcomes: results[0].outcomes,
+          historyRows: results[1].length,
+        }),
+      )
+      return results
+    })
+
+    // 编排层按 key 取 provider 的结构化载荷(evalCtx / 持久化 / 快照;渲染只用 blocks 行)
+    const blockData = new Map(blocks.map(block => [block.key, block.data]))
+    const memoryItems = (blockData.get('memory') as MemoryContext[] | undefined) ?? []
+    const knowledge = (blockData.get('knowledge') as KnowledgeContext[] | undefined) ?? []
+    const profile = blockData.get('profile') as CompanionProfileContext | undefined
+    const healthData = blockData.get('health') as { hasHealth: boolean } | undefined
+    const activityData = blockData.get('activities') as
+      | { recentActivityCount: number; lastRunDaysAgo: number | null }
+      | undefined
+    const goalData = blockData.get('goals') as { goalLines: string[] } | undefined
+    const envData = blockData.get('environment') as { hasEnvironment: boolean } | undefined
 
     // 历史(不含刚插入的这条)→ 原生多轮 turns(参考 Claude Code,不再压平成文本):
     // 合并连续同角色(assistant 落库失败会产生连续 user)满足 API 交替要求,首条必须是 user;
@@ -308,51 +209,11 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     while (turns.length && turns[0].role === 'assistant') turns.shift()
     const historyForCuration = historyRows.map(row => ({ role: row.role, content: row.content }))
 
-    // 今天日期(Asia/Shanghai)——不给这行,模型的所有时间推理只能靠上下文里的日期反猜
-    const todayDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
-    const todayWeekday = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }).format(new Date())
-    const today = `${todayDate}（${todayWeekday}，Asia/Shanghai）`
-
-    const h = recentHealth[0]
-    const healthLine = h
-      ? `- ${h.date}：睡 ${h.sleepMinutes ?? '-'} 分、静息心率 ${h.restingHr ?? '-'}、HRV ${h.hrv ?? '-'}、步数 ${h.steps ?? '-'}、恢复 ${h.recoveryLabel}`
-      : null
-    const goalLines = raceGoals.map(raceGoalSummary)
-    const activityTypeLabel: Record<string, string> = { running: '跑步', cycling: '骑行', walking: '步行' }
-    const daysAgoLabel = (days: number) => (days === 0 ? '今天' : days === 1 ? '昨天' : `${days} 天前`)
-    const activityLine = (act: (typeof recentActivities)[number]) =>
-      `- ${act.date}（${daysAgoLabel(act.daysAgo)}）：${activityTypeLabel[act.type] ?? act.type} ${act.distanceKm} km，用时 ${act.durationMin} 分钟${act.paceText ? `，配速 ${act.paceText}/km` : ''}${act.avgHeartRate ? `，平均心率 ${act.avgHeartRate}` : ''}`
-    const runLines = recentActivities.map(activityLine)
-    // 「最近 N 条」窗口可能全被单一类型占满(比如连续骑行),把每种类型的最近一次补进来,
-    // 并显式给出"距上次跑步 N 天"——运动伙伴最关键的事实,不能让模型自己推。
-    const lastRun = latestPerType.find(act => act.type === 'running')
-    if (lastRun) runLines.unshift(`- 距上次跑步已 ${lastRun.daysAgo} 天`)
-    const extraPerType = latestPerType.filter(
-      act => !recentActivities.some(recent => recent.date === act.date && recent.type === act.type),
-    )
-    if (extraPerType.length) {
-      runLines.push('（更早的,各类型最近一次）', ...extraPerType.map(activityLine))
-    }
-    const profileBlock = companionProfile
-      ? {
-          displayName: companionProfile.displayName,
-          companionStyle: companionProfile.companionStyle,
-          trainingPreferences: companionProfile.trainingPreferences,
-          injuryWatchlist: companionProfile.injuryWatchlist,
-          doNotAssume: companionProfile.doNotAssume,
-        }
-      : undefined
-
     // 当前这轮 = <context> 背景块 + 用户原话;若历史末尾已是 user(上一轮 assistant 落库失败),合并进去保持交替
     const contextTurn = buildChatContextTurn({
       message: input.message,
       today,
-      memories: memoryItems.map(memory => memory.content),
-      knowledge: knowledge.map(item => item.content.slice(0, 220)),
-      health: healthLine,
-      recentRuns: runLines,
-      raceGoals: goalLines,
-      profile: profileBlock,
+      blocks: blocks.map(block => ({ title: block.title, lines: block.lines })),
       priorToolCalls: priorToolCalls.slice(-4),
       hasImage: images.length > 0,
     })
@@ -366,27 +227,29 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
       historyTurns: historyRows.length,
       today,
       priorToolCallCount: Math.min(priorToolCalls.length, 4),
-      hasHealth: Boolean(h),
-      recentActivityCount: recentActivities.length,
-      lastRunDaysAgo: lastRun?.daysAgo ?? null,
-      raceGoals: goalLines,
-      profileVersion: companionProfile?.projectionVersion ?? null,
+      hasHealth: healthData?.hasHealth ?? false,
+      hasEnvironment: envData?.hasEnvironment ?? false,
+      recentActivityCount: activityData?.recentActivityCount ?? 0,
+      lastRunDaysAgo: activityData?.lastRunDaysAgo ?? null,
+      raceGoals: goalData?.goalLines ?? [],
+      profileVersion: profile?.projectionVersion ?? null,
+      providers: outcomes,
     })
 
     // ── draft_response (FriendPersona) + evaluate_response (Evaluator, 最多重写一次) ──
     const evalCtx: ChatEvalContext = {
-      hasHealth: Boolean(h),
-      hasMemoryOrHabit:
-        memoryItems.length > 0 || (companionProfile?.trainingPreferences.length ?? 0) > 0,
-      doNotAssume: companionProfile?.doNotAssume ?? [],
+      hasHealth: healthData?.hasHealth ?? false,
+      hasMemoryOrHabit: memoryItems.length > 0 || (profile?.trainingPreferences.length ?? 0) > 0,
+      doNotAssume: profile?.doNotAssume ?? [],
+      hasEnvironment: envData?.hasEnvironment ?? false,
     }
-    // FriendPersona 带只读工具:快照不够时自己查库(每次调用写 tool_use 快照可回放)
+    // FriendPersona 带只读工具(providers 聚合):快照不够时自己查(每次调用写 tool_use 快照可回放)
     const toolCalls: Array<{ name: string; input: unknown; resultPreview?: string }> = []
     const modelOpts = {
       maxTokens: CHAT_MAX_TOKENS,
       images,
-      tools: PR_CHAT_TOOLS,
-      executeTool: executePrChatTool,
+      tools: providerTools(),
+      executeTool: executeProviderTool,
       onToolCall: (name: string, toolInput: unknown, result: string) => {
         toolCalls.push({ name, input: toolInput, resultPreview: result.slice(0, 300) })
         void writeSnapshot(runId, 'tool_use', { name, input: toolInput, result: result.slice(0, 600) }).catch(() => {})
@@ -478,7 +341,7 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
       contextJson: serialize({
         memoryItems,
         knowledge,
-        raceGoals: goalLines,
+        raceGoals: goalData?.goalLines ?? [],
         evaluatorWarnings: warnings,
         attempts,
         model,

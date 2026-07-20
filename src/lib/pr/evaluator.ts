@@ -10,6 +10,8 @@ export interface ChatEvalContext {
   hasHealth: boolean
   hasMemoryOrHabit: boolean
   doNotAssume: string[]
+  /** 环境快照(天气/空气/时段)是否装配成功;失败时回复不得出现具体环境数值。 */
+  hasEnvironment: boolean
 }
 
 /**
@@ -47,6 +49,11 @@ export function evaluateChatReply(content: string, ctx: ChatEvalContext): Evalua
   }
   if (!ctx.hasMemoryOrHabit && /(你习惯|你喜欢|你通常|你经常|老习惯)/.test(content)) {
     warnings.push('unsupported_habit_claim')
+  }
+  // 环境数值 grounding:没有环境数据时,带具体数值的天气/空气断言就是编造。
+  // Reason: 只拦「数值级」断言(几度/AQI 多少/降水概率),"下雨路滑"这类世界常识不拦。
+  if (!ctx.hasEnvironment && /(\d+\s*°C|\d+\s*度[以上下]?[的时]?(?:高温|低温)|AQI\s*\d+|降水概率|降雨概率|PM2\.5\s*\d+)/.test(content)) {
+    warnings.push('unsupported_environment_claim')
   }
   return { passed: warnings.length === 0, warnings }
 }
