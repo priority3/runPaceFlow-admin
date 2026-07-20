@@ -796,25 +796,29 @@ export async function getFriendProfile() {
   }
 }
 
+/** 从「用户希望被称呼为 X / 叫我 X / 我叫 X / 名字是 X」类记忆里抽出称呼,供投影到 display_name。 */
+function deriveDisplayName(memories: MemoryContext[]): string | null {
+  const re = /(?:希望被称呼为|请?称呼为|请叫我|叫我|名字是|我叫)\s*([^\s,，。.、!！?？]+)/
+  for (const memory of memories) {
+    const hit = memory.content.match(re)
+    if (hit?.[1]) return hit[1].trim()
+  }
+  return null
+}
+
 export async function projectFriendProfile() {
   const active = await listMemories(['active'], 100)
   const injuryWatchlist = active.filter(memory => memory.type === 'injury')
-  // 例外(doc:correction 永远进入上下文,防止重复犯错):纠错类记忆在 candidate 阶段也投影进
-  // doNotAssume,不必等晋升 active。其余类型仍只取 active。经 LLM MemoryCurator 把关,
-  // 不再会有"要不要"这类子串误判的假纠错混入。
-  const candidateCorrections = (await listMemories(['candidate'], 200)).filter(
-    memory => memory.type === 'correction',
-  )
+  // do_not_assume 只取 **active** 的 correction:候选纠错必须经用户确认或多证据晋升为 active 才影响行为,
+  // 不再"候选即投影"——否则一句反问/玩笑被误判成 correction 就会误伤(闸门看确认/证据,不看自评置信度)。
   const doNotAssumeContents = Array.from(
-    new Set(
-      [...active.filter(memory => memory.type === 'correction'), ...candidateCorrections].map(
-        memory => memory.content,
-      ),
-    ),
+    new Set(active.filter(memory => memory.type === 'correction').map(memory => memory.content)),
   )
   const preferences = active.filter(memory => memory.type === 'preference' || memory.type === 'relationship_note')
   const goals = active.filter(memory => memory.type === 'goal')
   const habits = active.filter(memory => memory.type === 'habit' || memory.type === 'risk_pattern')
+  // 称呼:从 active 的 relationship_note 抽出,投影到 display_name(取最近一条;无则保持原值不动)。
+  const displayName = deriveDisplayName(preferences)
   const activeRaceGoals = await getRaceGoalContext(3)
   const healthMetrics = await getLatestHealthDailyMetrics(3)
   const recentState = {
@@ -827,6 +831,7 @@ export async function projectFriendProfile() {
     .insert(friendProfile)
     .values({
       id: 'default',
+      ...(displayName ? { displayName } : {}),
       companionStyleJson: JSON.stringify(preferences.map(memory => memory.content)),
       activeGoalsJson: JSON.stringify([
         ...goals.map(memory => memory.content),
@@ -842,6 +847,7 @@ export async function projectFriendProfile() {
     .onConflictDoUpdate({
       target: friendProfile.id,
       set: {
+        ...(displayName ? { displayName } : {}),
         companionStyleJson: JSON.stringify(preferences.map(memory => memory.content)),
         activeGoalsJson: JSON.stringify([
           ...goals.map(memory => memory.content),
