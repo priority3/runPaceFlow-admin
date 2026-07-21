@@ -24,7 +24,7 @@ import {
 
 import type { ContextBlock, ContextProvider } from './types'
 
-interface HomeLocation {
+export interface HomeLocation {
   lat: number
   lng: number
   /** 呈现给模型的地点措辞,如「按你配置的家附近」「按常跑路线定位」。 */
@@ -117,7 +117,15 @@ async function deriveLocationFromActivities(): Promise<HomeLocation | null> {
   return { lat, lng, label: '按常跑路线定位' }
 }
 
-async function resolveHomeLocation(): Promise<HomeLocation | null> {
+/**
+ * 常跑地点(显式配置优先,否则活动起点聚类;带 TTL 缓存)。
+ * 导出给 activities provider 算 startPlace(起点相对常跑地点的方位),别处也可复用。
+ */
+export async function getHomeLocation(): Promise<HomeLocation | null> {
+  // Reason: fixture 模式(评测)地点也以 fixture 为准——startPlace 等派生值可复现,
+  // 不受评测机真实配置库里 PR_HOME_* 的影响;生产无 fixture,此分支不生效。
+  const fixture = readFixture()
+  if (fixture?.location) return fixture.location
   if (locationCache && Date.now() - locationCache.at < LOCATION_TTL_MS) return locationCache.value
 
   let value: HomeLocation | null = null
@@ -152,7 +160,7 @@ async function getEnvPayload(): Promise<EnvPayload | null> {
   }
 
   let value: EnvPayload | null = null
-  const location = await resolveHomeLocation()
+  const location = await getHomeLocation()
   if (location) {
     // AQI 失败可容忍(单独 null),forecast 失败则整体降级为「暂无」
     const [forecast, airQuality] = await Promise.all([
@@ -253,7 +261,7 @@ export const environmentProvider: ContextProvider = {
   load: async () => {
     const payload = await getEnvPayload()
     if (!payload) {
-      const location = await resolveHomeLocation().catch(() => null)
+      const location = await getHomeLocation().catch(() => null)
       return unavailableBlock(location ? '天气服务未响应' : '还没有可定位的常跑地点,可配置 PR_HOME_LAT/PR_HOME_LNG')
     }
     const nowLocal = readFixture()?.nowLocal ?? shanghaiNowLocal()
@@ -268,7 +276,7 @@ export const environmentProvider: ContextProvider = {
     {
       name: 'query_weather',
       description:
-        '查天气预报(逐日概览+早晚时段),默认常跑地点,也可用 place 指定任意城市/地名(他出差/旅行/异地跑时用)。上下文快照只有当下和未来 12 小时;他问「明天早上」「周末」「比赛那天」这类更远时间、或问外地天气时用它。超过 7 天的日期查不了,要如实说。',
+        '查天气(逐日概览+早晚时段),默认常跑地点,也可用 place 指定任意城市/地名(他出差/旅行/异地跑时用)。上下文快照只有当下和未来 12 小时;他问「明天早上」「周末」「比赛那天」这类更远时间、或问外地天气时用它。过去的日期也能查(近 3 个月内的当天实况,复盘那天用);未来超过 7 天、过去超过 3 个月的查不了,要如实说。',
       inputSchema: {
         type: 'object',
         properties: {
@@ -283,6 +291,22 @@ export const environmentProvider: ContextProvider = {
     const fixture = readFixture()
     const place = typeof input.place === 'string' && input.place.trim() ? input.place.trim() : null
 
+    // 日期先行解析(nowLocal 不依赖预报数据):过去日期要决定真实路径带多大的 past_days。
+    const nowLocal = fixture?.nowLocal ?? shanghaiNowLocal()
+    const todayStr = nowLocal.slice(0, 10)
+    const fallbackDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(
+      new Date(Date.parse(`${todayStr}T00:00:00+08:00`) + 86_400_000),
+    )
+    const date = typeof input.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : fallbackDate
+    // 过去日期:forecast API 的 past_days 能带回近 92 天的当天实况;更久的如实拒,别装能查。
+    const daysAgo = date < todayStr ? Math.round((Date.parse(todayStr) - Date.parse(date)) / 86_400_000) : 0
+    if (daysAgo > 92) {
+      return JSON.stringify({
+        error: `${date} 已经过去超过 3 个月,当天实况查不到了;那天如果有运动,query_activities 的记录里带当次实测天气`,
+      })
+    }
+    const pastDays = daysAgo > 0 ? Math.min(daysAgo + 1, 92) : 0
+
     // 地点解析:place 指定异地(fixture 查预置表 / 真实走 geocoding),否则常跑地点。
     let forecast: ForecastData | null = null
     let locationLabel = ''
@@ -295,10 +319,19 @@ export const environmentProvider: ContextProvider = {
       } else {
         const geo = await geocodeCity(place)
         if (!geo) return JSON.stringify({ error: `没找到「${place}」这个地点,换个写法再试?` })
-        forecast = await fetchForecast(geo.lat, geo.lng)
+        forecast = await fetchForecast(geo.lat, geo.lng, 7, pastDays)
         if (!forecast) return JSON.stringify({ error: '天气服务没响应,稍后再试,别编数值' })
         locationLabel = geo.label
       }
+    } else if (pastDays > 0 && !fixture) {
+      // Reason: 快照缓存(getEnvPayload)只装未来预报,过去日期单独拉一次带 past_days 的数据,
+      // 不动缓存——否则一次复盘会把 45 分钟的环境快照换成带历史的大包。fixture 路径不走这里:
+      // 评测把过去日期的真值直接预置进 fixture.forecast.daily/hourly,下方 find 自然命中。
+      const location = await getHomeLocation().catch(() => null)
+      if (!location) return JSON.stringify({ error: '还没有常跑地点定位,查不了那天的天气,别编数值' })
+      forecast = await fetchForecast(location.lat, location.lng, 7, pastDays)
+      if (!forecast) return JSON.stringify({ error: '天气服务没响应,稍后再试,别编数值' })
+      locationLabel = location.label
     } else {
       const payload = await getEnvPayload()
       if (!payload) return JSON.stringify({ error: '天气服务不可用或还没有常跑地点定位,别编数值' })
@@ -306,16 +339,15 @@ export const environmentProvider: ContextProvider = {
       locationLabel = payload.location.label
     }
 
-    const nowLocal = fixture?.nowLocal ?? shanghaiNowLocal()
-    const fallbackDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(
-      new Date(Date.parse(`${nowLocal.slice(0, 10)}T00:00:00+08:00`) + 86_400_000),
-    )
-    const date = typeof input.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : fallbackDate
     const day = forecast.daily.find(item => item.date === date)
     if (!day) {
       const range = forecast.daily
+      // 错误文案分叉:过去=「已过去、实测没拿到」;未来=「还没预报到」。语气别搞反(过去说"还查不了"像未来)。
       return JSON.stringify({
-        error: `预报只覆盖 ${range[0]?.date} ~ ${range[range.length - 1]?.date},${date} 还查不了`,
+        error:
+          date < todayStr
+            ? `${date} 已经过去,那天的实况没查到(可查范围 ${range[0]?.date} ~ ${range[range.length - 1]?.date})`
+            : `预报只覆盖 ${range[0]?.date} ~ ${range[range.length - 1]?.date},${date} 还查不了`,
       })
     }
 
@@ -338,6 +370,8 @@ export const environmentProvider: ContextProvider = {
     return JSON.stringify({
       date,
       location: locationLabel,
+      // 过去日期给措辞锚点:这是那天的实况回看,不是预报,模型别说成「预计」。
+      note: daysAgo > 0 ? '历史实测(那天已过去,以下是当天实况汇总)' : undefined,
       summary: {
         description: day.description,
         tempMin: day.tempMin,

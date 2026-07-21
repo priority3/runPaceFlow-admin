@@ -241,8 +241,13 @@ export async function geocodeCity(name: string): Promise<GeocodeResult | null> {
 /**
  * 实况 + 未来最多 7 天预报(逐小时 + 逐日,含日出日落)。
  * timezone 固定 Asia/Shanghai:返回的所有时间串都是上海本地时间,渲染无需再换算。
+ *
+ * pastDays > 0 时连带返回近 N 天的当天实况(Open-Meteo forecast API 原生 past_days,
+ * 官方上限 92;与预报同构,近期日期给的是实测/再分析值)——「复盘过去某天」用。
+ * Reason: 不走 archive-api——ERA5 归档有约 5 天延迟,连「昨天」都罩不住;
+ * forecast+past_days 无延迟且复用现有解析,默认 0 时行为与旧版完全一致。
  */
-export async function fetchForecast(lat: number, lng: number, days = 7): Promise<ForecastData | null> {
+export async function fetchForecast(lat: number, lng: number, days = 7, pastDays = 0): Promise<ForecastData | null> {
   try {
     const url = new URL('https://api.open-meteo.com/v1/forecast')
     url.searchParams.set('latitude', lat.toFixed(4))
@@ -252,6 +257,8 @@ export async function fetchForecast(lat: number, lng: number, days = 7): Promise
     url.searchParams.set('daily', 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset')
     url.searchParams.set('timezone', 'Asia/Shanghai')
     url.searchParams.set('forecast_days', String(Math.min(Math.max(days, 1), 7)))
+    const past = Math.min(Math.max(Math.trunc(pastDays), 0), 92)
+    if (past > 0) url.searchParams.set('past_days', String(past))
 
     const response = await fetch(url.toString(), { signal: AbortSignal.timeout(5000) })
     if (!response.ok) {
