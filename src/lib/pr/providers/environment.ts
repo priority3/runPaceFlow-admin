@@ -16,6 +16,7 @@ import { getRuntimeSetting } from '@/lib/runtime-config'
 import {
   fetchCurrentAirQuality,
   fetchForecast,
+  geocodeCity,
   type AirQualityData,
   type ForecastData,
   type ForecastHour,
@@ -42,6 +43,8 @@ interface EnvFixture {
   airQuality?: AirQualityData | null
   /** 固定"现在"(YYYY-MM-DDTHH:mm),让评测输出可复现。 */
   nowLocal?: string
+  /** 评测用:按地名预置的异地预报(query_weather 的 place 参数在 fixture 模式下查这里,不出外网)。 */
+  placeForecasts?: Record<string, ForecastData>
 }
 
 const LOCATION_TTL_MS = 6 * 60 * 60 * 1000
@@ -265,35 +268,59 @@ export const environmentProvider: ContextProvider = {
     {
       name: 'query_weather',
       description:
-        '查常跑地点未来最多 7 天的天气预报(逐日概览+早晚时段)。上下文快照只有当下和未来 12 小时;他问「明天早上」「周末」「比赛那天」这类更远时间的天气时用它。超过 7 天的日期查不了,要如实说。',
+        '查天气预报(逐日概览+早晚时段),默认常跑地点,也可用 place 指定任意城市/地名(他出差/旅行/异地跑时用)。上下文快照只有当下和未来 12 小时;他问「明天早上」「周末」「比赛那天」这类更远时间、或问外地天气时用它。超过 7 天的日期查不了,要如实说。',
       inputSchema: {
         type: 'object',
         properties: {
           date: { type: 'string', description: 'YYYY-MM-DD;省略则查明天' },
+          place: { type: 'string', description: '城市/地名,如「上海」「杭州」;省略则用常跑地点' },
         },
       },
     },
   ],
   executeTool: async (_name, rawInput) => {
     const input = (rawInput ?? {}) as Record<string, unknown>
-    const payload = await getEnvPayload()
-    if (!payload) return JSON.stringify({ error: '天气服务不可用或还没有常跑地点定位,别编数值' })
+    const fixture = readFixture()
+    const place = typeof input.place === 'string' && input.place.trim() ? input.place.trim() : null
 
-    const nowLocal = readFixture()?.nowLocal ?? shanghaiNowLocal()
+    // 地点解析:place 指定异地(fixture 查预置表 / 真实走 geocoding),否则常跑地点。
+    let forecast: ForecastData | null = null
+    let locationLabel = ''
+    if (place) {
+      if (fixture) {
+        const preset = fixture.placeForecasts?.[place]
+        if (!preset) return JSON.stringify({ error: `查不到「${place}」的天气(换个更常见的城市名试试?)` })
+        forecast = preset
+        locationLabel = place
+      } else {
+        const geo = await geocodeCity(place)
+        if (!geo) return JSON.stringify({ error: `没找到「${place}」这个地点,换个写法再试?` })
+        forecast = await fetchForecast(geo.lat, geo.lng)
+        if (!forecast) return JSON.stringify({ error: '天气服务没响应,稍后再试,别编数值' })
+        locationLabel = geo.label
+      }
+    } else {
+      const payload = await getEnvPayload()
+      if (!payload) return JSON.stringify({ error: '天气服务不可用或还没有常跑地点定位,别编数值' })
+      forecast = payload.forecast
+      locationLabel = payload.location.label
+    }
+
+    const nowLocal = fixture?.nowLocal ?? shanghaiNowLocal()
     const fallbackDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(
       new Date(Date.parse(`${nowLocal.slice(0, 10)}T00:00:00+08:00`) + 86_400_000),
     )
     const date = typeof input.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : fallbackDate
-    const day = payload.forecast.daily.find(item => item.date === date)
+    const day = forecast.daily.find(item => item.date === date)
     if (!day) {
-      const range = payload.forecast.daily
+      const range = forecast.daily
       return JSON.stringify({
         error: `预报只覆盖 ${range[0]?.date} ~ ${range[range.length - 1]?.date},${date} 还查不了`,
       })
     }
 
     const hoursOf = (from: number, to: number) =>
-      payload.forecast.hourly.filter(hour => {
+      forecast!.hourly.filter(hour => {
         if (hour.timeLocal.slice(0, 10) !== date) return false
         const h = Number(hour.timeLocal.slice(11, 13))
         return h >= from && h <= to
@@ -310,7 +337,7 @@ export const environmentProvider: ContextProvider = {
     }
     return JSON.stringify({
       date,
-      location: payload.location.label,
+      location: locationLabel,
       summary: {
         description: day.description,
         tempMin: day.tempMin,

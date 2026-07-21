@@ -201,6 +201,43 @@ function localClock(isoLocal: string): string {
   return isoLocal.split('T')[1]?.slice(0, 5) ?? isoLocal
 }
 
+export interface GeocodeResult {
+  lat: number
+  lng: number
+  /** 呈现用地名,如「上海」「杭州·浙江省」。 */
+  label: string
+}
+
+/**
+ * 城市/地名 → 经纬度(Open-Meteo 同厂免费 geocoding,支持中文,无需 key)。
+ * 供 query_weather 的 place 参数用:PR 不再只会查常跑地点。
+ */
+export async function geocodeCity(name: string): Promise<GeocodeResult | null> {
+  try {
+    const url = new URL('https://geocoding-api.open-meteo.com/v1/search')
+    url.searchParams.set('name', name)
+    url.searchParams.set('count', '1')
+    url.searchParams.set('language', 'zh')
+    url.searchParams.set('format', 'json')
+
+    const response = await fetch(url.toString(), { signal: AbortSignal.timeout(5000) })
+    if (!response.ok) {
+      console.warn(`Open-Meteo geocoding API returned ${response.status}`)
+      return null
+    }
+    const data = (await response.json()) as {
+      results?: Array<{ name?: string; latitude?: number; longitude?: number; admin1?: string }>
+    }
+    const first = data.results?.[0]
+    if (!first || first.latitude == null || first.longitude == null) return null
+    const label = first.admin1 && first.admin1 !== first.name ? `${first.name}·${first.admin1}` : (first.name ?? name)
+    return { lat: first.latitude, lng: first.longitude, label }
+  } catch (error) {
+    console.warn('Open-Meteo geocoding 失败:', (error as Error).message)
+    return null
+  }
+}
+
 /**
  * 实况 + 未来最多 7 天预报(逐小时 + 逐日,含日出日落)。
  * timezone 固定 Asia/Shanghai:返回的所有时间串都是上海本地时间,渲染无需再换算。
