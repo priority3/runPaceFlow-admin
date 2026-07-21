@@ -1,0 +1,1 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "核查降级矩阵各场景(无凭据/超时/无向量/换模型)是否在每一层都闭环"}

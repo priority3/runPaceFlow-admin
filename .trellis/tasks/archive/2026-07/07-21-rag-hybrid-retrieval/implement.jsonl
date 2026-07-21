@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "改造 rag.ts 前先核对可复用件:openai 客户端/settings 注册/getRuntimeSettings 均有现成模式,禁止重复造"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检索改造横跨 settings→embedding 客户端→检索管线→ingest→eval 五层,写代码前过一遍跨层数据流"}
