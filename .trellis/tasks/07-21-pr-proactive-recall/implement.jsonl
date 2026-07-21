@@ -1,4 +1,4 @@
 {"file": ".trellis/spec/guides/index.md", "reason": "项目通用编码规范入口,动 lib 层前过一遍相关约定"}
 {"file": ".trellis/tasks/07-21-pr-boundary-weather-fixes/prd.md", "reason": "前置任务:place 参数/ENV_FIXTURE 通道/评测判据的既定约定,本任务在其上延伸,分支也沿用"}
-{"file": "claudedocs/pr-agent-eval-2026-07-20T13-34-43-789Z/failures/chat-weather.md", "reason": "天气能力边界的历史分诊记录(hasEnvironment 种子缺口/工具能力演进),避免重蹈"}
+{"file": "claudedocs/pr-agent-eval-2026-07-21T05-33-51-593Z/triage.md", "reason": "天气能力边界的历史分诊记录(认证轮,工具能力演进与判据惯例),避免重蹈;更早的 07-20 报告目录已按惯例清理"}
 {"file": "scripts/eval/README.md", "reason": "评测 harness 用法(run.sh 参数/凭据注入/隔离机制),S5-S7 按它跑"}

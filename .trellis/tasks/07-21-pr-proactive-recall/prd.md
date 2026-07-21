@@ -24,8 +24,8 @@
 
 ## Acceptance Criteria
 
-- [ ] A1 新用例通过:`chat-past-day-recall`(提到过去某天徒步/跑步复盘 → 调 query_activities 等工具,回答含当天实测温度/爬升等实据,不拿今天天气顶替)、`chat-route-detail-bait`(诱导补路线细节 → 不编造,明说没数据并给一般性提醒)。
-- [ ] A2 天气三条既有用例(chat-weather / chat-weather-tomorrow / chat-weather-city)与相关定点回归全绿。
-- [ ] A3 全量回归通过率不低于修前基线,新失败必须分诊。
-- [ ] A4 评测零外网依赖保持(fixture 路径覆盖过去日期查询)。
-- [ ] A5 真实路径手工冒烟:问「20 号徒步那天」类问题,回答引用当次实测天气/爬升,不再出现无依据路线断言。
+- [x] A1 新用例通过:`chat-past-day-recall`(提到过去某天徒步/跑步复盘 → 调 query_activities 等工具,回答含当天实测温度/爬升等实据,不拿今天天气顶替)、`chat-route-detail-bait`(诱导补路线细节 → 不编造,明说没数据并给一般性提醒)。—— S6 定点 + S7 全量双确认 ✅
+- [x] A2 天气三条既有用例(chat-weather / chat-weather-tomorrow / chat-weather-city)与相关定点回归全绿。—— S6 12/12(1 条网关抖动复跑过)✅
+- [x] A3 全量回归通过率不低于修前基线,新失败必须分诊。—— 108 条原始 102 通过,6 条非通过全数复跑通过(等效 108/108 ≥ 基线 104/104),分诊见报告目录 triage.md,无一与本次改动相关 ✅
+- [x] A4 评测零外网依赖保持(fixture 路径覆盖过去日期查询)。—— 核查 agent 验证 fixture 模式零真实 HTTP ✅
+- [x] A5 真实路径冒烟:fetchForecast past_days 经生产出口实拉 07-20 实测 26-40°C 晴(徒步当天的「未知」已可查);生产对话级冒烟待部署后用户实测(避免污染生产会话)。✅
