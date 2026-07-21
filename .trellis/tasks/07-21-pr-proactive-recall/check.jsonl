@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/index.md", "reason": "检查代码是否符合项目通用规范(文件 500 行红线/注释约定等)"}
+{"file": "scripts/eval/README.md", "reason": "核对评测执行方式与判据组织,确认 S6/S7 回归按规范跑齐"}

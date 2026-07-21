@@ -12,3 +12,4 @@ yarn-debug.log*
 pnpm-debug.log*
 bun.lockb
 .!*!*
+.claude/settings.local.json
