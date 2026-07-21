@@ -111,6 +111,10 @@ export async function seed(profile: SeedProfile = 'default'): Promise<SeedResult
       averagePace: a.paceSecPerKm,
       averageHeartRate: a.avgHr,
       maxHeartRate: a.maxHr,
+      // 供「复盘过去某天」用例:当次实测天气/爬升/路线(仅个别条目带,与生产回填字段同构)
+      elevationGain: a.elevationGain ?? null,
+      weatherData: a.weatherData ? JSON.stringify(a.weatherData) : null,
+      routeCoordinates: a.routeCoordinates ? JSON.stringify(a.routeCoordinates) : null,
     })
   }
 

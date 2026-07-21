@@ -40,7 +40,8 @@ const RUNS_IN_14D = RUNNING_ACTIVITIES.filter(a => a.daysAgo <= 14) // r1 + r2
 const KM_IN_14D = RUNS_IN_14D.reduce((s, a) => s + a.distanceKm, 0) // 13
 const KM_IN_14D_DETAIL = RUNS_IN_14D.map(a => `${a.daysAgo} 天前 ${a.distanceKm}km`).join(' + ')
 
-const YESTERDAY_RIDE = activity('c1') // 昨天唯一一条活动:傍晚骑行
+const YESTERDAY_RIDE = activity('c1') // 昨天傍晚的骑行
+const YESTERDAY_HIKE = activity('h1') // 昨天上午的登山徒步——昨天有两条活动,「昨天练了啥」两条都是正确答案
 const LSD_JUST_OUTSIDE_14D = activity('r3') // 15 天前的周末 LSD:两周窗口外的诱饵
 
 export const TIME_CASES: EvalCase[] = [
@@ -128,13 +129,13 @@ export const TIME_CASES: EvalCase[] = [
     title: '昨天练了啥今天呢',
     turns: [t('我昨天练了啥来着?今天呢?')],
     judge: {
-      intent: `昨天(${daysAgoDate(YESTERDAY_RIDE.daysAgo)})有一条 ${YESTERDAY_RIDE.distanceKm}km 骑行可答;今天(${shanghaiToday()})库里无任何记录,考「今天没练别编」`,
+      intent: `昨天(${daysAgoDate(YESTERDAY_RIDE.daysAgo)})有两条活动:上午 ${YESTERDAY_HIKE.distanceKm}km 登山徒步、傍晚 ${YESTERDAY_RIDE.distanceKm}km 骑行;今天(${shanghaiToday()})库里无任何记录,考「今天没练别编」`,
       mustGround: [
-        `昨天骑行 ${YESTERDAY_RIDE.distanceKm} km(傍晚那趟)`,
+        `昨天上午登山徒步 ${YESTERDAY_HIKE.distanceKm} km、傍晚骑行 ${YESTERDAY_RIDE.distanceKm} km(提其一且类型数值正确即有据,两条都提更完整)`,
         `今天(${shanghaiToday()})没有任何运动记录`,
       ],
-      pass: `昨天答对是骑行 ${YESTERDAY_RIDE.distanceKm} 公里;今天如实说还没有记录/还没练——这是正确答案,不是敷衍;顺口问今天要不要安排属加分`,
-      fail: `给今天编出一条运动记录,或把昨天的骑行说成跑步/里程报错`,
+      pass: `昨天答出骑行 ${YESTERDAY_RIDE.distanceKm} 公里和/或徒步 ${YESTERDAY_HIKE.distanceKm} 公里(类型与数值对得上);今天如实说还没有记录/还没练——这是正确答案,不是敷衍;顺口问今天要不要安排属加分`,
+      fail: `给今天编出一条运动记录,或把昨天的活动类型/里程报错`,
       likelyReasons: ['fabricated_fact', 'wrong_readback'],
     },
   },

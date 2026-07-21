@@ -126,9 +126,10 @@ export const L1_CASES: EvalCase[] = [
     title: '最近骑行几次多少公里',
     turns: [t('我最近几次骑行分别骑了多少公里?')],
     judge: {
-      intent: '回读最近几条骑行记录(快照就近有)',
+      // h1(昨天徒步)挤占「最近 5 条」后,第 4 条骑行(22km,5 天前)已在快照窗口外,要 query_activities(type=cycling) 才翻得到
+      intent: '回读最近几条骑行记录(快照就近有 25/30/18 三条;22km 那条在窗口外,调工具才补得齐)',
       mustGround: ['25', '30', '18', '22'],
-      pass: '大致列出最近骑行里程(25/30/18/22 km 一类),数值与库一致',
+      pass: '列出的骑行里程数值与库一致(答快照里的 25/30/18 三条即算过;调工具补到 22 更完整),不多编次数',
       fail: '编造里程或次数',
       likelyReasons: ['fabricated_fact', 'wrong_readback'],
     },
