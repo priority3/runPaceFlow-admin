@@ -11,6 +11,18 @@ import { BatchSpanProcessor, NodeTracerProvider } from '@opentelemetry/sdk-trace
 
 import { setTracingEnabled } from './trace'
 
+let activeProvider: NodeTracerProvider | null = null
+
+/** 主动 flush(评测脚本等短生命周期进程正常退出前调用,否则 Batch 缓冲的尾部 span 会丢)。 */
+export async function flushOtel(): Promise<void> {
+  if (!activeProvider) return
+  try {
+    await activeProvider.forceFlush()
+  } catch (error) {
+    console.warn('[otel] forceFlush 失败:', (error as Error).message)
+  }
+}
+
 export function initOtel() {
   const endpoint = process.env.PHOENIX_COLLECTOR_ENDPOINT
   if (!endpoint) {
@@ -36,6 +48,7 @@ export function initOtel() {
     ],
   })
   provider.register()
+  activeProvider = provider
   setTracingEnabled()
 
   // BatchSpanProcessor 默认缓冲 5s;部署/重启频繁,不 flush 会丢掉在途 span。
