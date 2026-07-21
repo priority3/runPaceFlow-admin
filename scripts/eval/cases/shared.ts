@@ -40,6 +40,12 @@ export interface EvalCase {
   turns: Array<{ user: string; imageUrl?: string | null }>
   /** 本 case 需要的库档位(runner 按档分组、档间重播种子);缺省 default。 */
   seedProfile?: SeedProfile
+  /**
+   * 语义档知识检索用例(查询与靶文档零字面重叠,只有向量路能命中)。
+   * runner 在 embedding 未配置(getEmbeddingConfig()=null,即 KEY+MODEL 未齐备)时
+   * 自动跳过并在报告标注——否则检索必走纯词法,评测永久红。
+   */
+  requiresEmbedding?: boolean
   /** 多轮 case 的轮间等待(毫秒)——给后台记忆蒸馏/摘要留时间。 */
   interTurnDelayMs?: number
   expect?: DeterministicExpect

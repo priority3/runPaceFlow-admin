@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
 import { chatWithPr } from '@/lib/pr/chat'
+import { getEmbeddingConfig } from '@/lib/pr/embeddings'
 import type { PrStreamEvent } from '@/lib/pr/model'
 import { callPrModel } from '@/lib/pr/model'
 import { getAgentRunDetail } from '@/lib/pr/state'
@@ -275,6 +276,19 @@ async function main() {
     console.log(`[eval] ⚠️ 未配 ANTHROPIC_VISION_MODEL,跳过 ${skippedVision.length} 条视觉用例:${skippedVision.join(', ')}`)
   }
 
+  // 语义档知识检索用例(查询与靶文档零字面重叠)只有向量路能命中;embedding 未配置时
+  // 检索必走纯词法,跑了就是永久红——跳过并如实记录,不算失败(词法档用例不受影响,必须过)。
+  // Reason: 判定必须与应用层同源同强度(getEmbeddingConfig:KEY+MODEL 齐备,来源为
+  // env+配置库合并)——只看 env PR_EMBEDDING_API_KEY 会两个方向判错:半配置(缺 MODEL)
+  // 时放行必红;凭据只在配置库(CONFIG_DATABASE_URL 指线上)时误跳过、漏测语义档。
+  const embeddingCases = cases.filter(c => c.requiresEmbedding)
+  let skippedEmbedding: string[] = []
+  if (embeddingCases.length && !(await getEmbeddingConfig())) {
+    skippedEmbedding = embeddingCases.map(c => c.id)
+    cases = cases.filter(c => !c.requiresEmbedding)
+    console.log(`[eval] ⚠️ embedding 未配置(需 PR_EMBEDDING_API_KEY + PR_EMBEDDING_MODEL,env 或配置库),跳过 ${skippedEmbedding.length} 条语义档知识检索用例:${skippedEmbedding.join(', ')}`)
+  }
+
   // 多模态资产 → uploads 目录(chatWithPr 按 imageUrl 从 PR_UPLOAD_DIR 读盘)。
   const assetsDir = path.join(import.meta.dir, 'assets')
   const uploadDir = process.env.PR_UPLOAD_DIR || './data/eval-uploads'
@@ -331,6 +345,7 @@ async function main() {
     seed: seedInfo,
     seedProfiles,
     skippedVision: skippedVision.length ? skippedVision : undefined,
+    skippedEmbedding: skippedEmbedding.length ? skippedEmbedding : undefined,
     today: shanghaiToday(),
     evalDbUrl: EVAL_DB_URL ?? '(unset)',
     argv: process.argv.slice(2),

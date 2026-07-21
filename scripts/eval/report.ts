@@ -65,6 +65,8 @@ export interface RunMeta {
   seedProfiles?: Record<string, number>
   /** 因未配 ANTHROPIC_VISION_MODEL 被跳过的视觉用例 id。 */
   skippedVision?: string[]
+  /** 因 embedding 未配置(KEY+MODEL 未齐备)被跳过的语义档知识检索用例 id。 */
+  skippedEmbedding?: string[]
   today: string
   evalDbUrl: string
   argv: string[]
@@ -145,6 +147,7 @@ function buildSummary(meta: RunMeta, results: CaseResult[]): string {
   lines.push(`- 种子:${meta.seedVersion} —— ${JSON.stringify(meta.seed)}`)
   if (meta.seedProfiles && Object.keys(meta.seedProfiles).length > 1) lines.push(`- 种子档位分布:${JSON.stringify(meta.seedProfiles)}`)
   if (meta.skippedVision?.length) lines.push(`- ⚠️ 跳过视觉用例(未配 ANTHROPIC_VISION_MODEL):${meta.skippedVision.join(', ')}`)
+  if (meta.skippedEmbedding?.length) lines.push(`- ⚠️ 跳过语义档知识检索用例(embedding 未配置,需 PR_EMBEDDING_API_KEY + PR_EMBEDDING_MODEL):${meta.skippedEmbedding.join(', ')}`)
   lines.push(`- 隔离库:\`${meta.evalDbUrl}\`(零生产污染)`)
   lines.push(`- 参数:\`${meta.argv.join(' ') || '(全量)'}\``)
   lines.push('')

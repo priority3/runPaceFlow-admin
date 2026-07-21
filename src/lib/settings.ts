@@ -203,6 +203,31 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     ],
   },
   {
+    key: 'PR_EMBEDDING_API_KEY',
+    label: 'PR 知识库 Embedding API Key',
+    description:
+      'OpenAI 兼容 embedding 服务密钥（如 SiliconFlow）。与 Embedding 模型齐备后，PR 知识检索自动升级为混合模式；留空则纯词法检索。',
+    category: 'ai',
+    kind: 'password',
+    sensitive: true,
+  },
+  {
+    key: 'PR_EMBEDDING_BASE_URL',
+    label: 'PR 知识库 Embedding Base URL',
+    description: 'OpenAI 兼容 embedding 端点，如 SiliconFlow 的 https://api.siliconflow.cn/v1；留空使用官方 OpenAI。',
+    category: 'ai',
+    kind: 'url',
+    placeholder: 'https://api.siliconflow.cn/v1',
+  },
+  {
+    key: 'PR_EMBEDDING_MODEL',
+    label: 'PR 知识库 Embedding 模型',
+    description: '向量化模型名称，如 BAAI/bge-m3。与 API Key 齐备才启用向量召回；更换模型后旧向量自动失效，需重跑回填脚本。',
+    category: 'ai',
+    kind: 'text',
+    placeholder: 'BAAI/bge-m3',
+  },
+  {
     key: 'NEXT_PUBLIC_WEEKLY_RUNNING_DISTANCE_GOAL',
     label: '跑步周里程目标',
     description: '单位：米。',

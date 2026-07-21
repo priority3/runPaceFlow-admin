@@ -2,7 +2,7 @@
  * PR Agent 分级测试用例(L1–L4)聚合入口。
  *
  * 用例本体按等级/维度拆在 cases/ 目录:l1–l4 为原始 45 条,其余文件为扩容维度
- * (时间语义/写操作/退化态/纠正/医疗/注入/单位/视觉/伙伴/记忆/噪声)。
+ * (时间语义/写操作/退化态/纠正/医疗/注入/单位/视觉/伙伴/记忆/噪声/知识检索)。
  * 此处只做拼接、id 唯一性校验与过滤导出。
  *
  * 分级语义:
@@ -22,6 +22,7 @@ import { L4_CASES } from './cases/l4'
 import { MEDICAL2_CASES } from './cases/medical2'
 import { MEMORY2_CASES } from './cases/memory2'
 import { NOISE_CASES } from './cases/noise'
+import { RETRIEVAL_CASES } from './cases/retrieval'
 import { TIME_CASES } from './cases/time'
 import { UNITS_CASES } from './cases/units'
 import { VISION_CASES } from './cases/vision'
@@ -47,6 +48,8 @@ export const CASES: EvalCase[] = [
   ...COMPANION_CASES,
   ...MEMORY2_CASES,
   ...NOISE_CASES,
+  // ── RAG 混合检索联动(2026-07-21)──
+  ...RETRIEVAL_CASES,
 ]
 
 // Reason: 拆多文件后最容易出的错就是 id 撞车/漏改——模块加载即断言,fail fast。
