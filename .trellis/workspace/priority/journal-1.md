@@ -136,3 +136,37 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: 常跑地点迁 friend_profile + settings 四键摘除
+
+**Date**: 2026-07-22
+**Task**: 常跑地点迁 friend_profile + settings 四键摘除
+**Branch**: `main`
+
+### Summary
+
+常跑地点从 env 形状的配置键迁到 friend_profile.home_location_json(用户画像正确归宿):读写 helper + /api/pr/profile/home-location + PrPanel 编辑卡片(来源徽标/推导采用),getHomeLocation 显式源切换,fixture 优先与聚类推导不变,保存即失效缓存。settings 摘 PR_HOME_×3 + NEXT_PUBLIC_ADMIN_URL(用户裁定:运行时被消费≠需要运行时可配),runtime 分类退场,面板 38→34 键;治理守则第 2 条升级为「是否存在不伴随部署的修改场景」判据。隔离库 e2e 全过;部署后需 prune 清 NEXT_PUBLIC_ADMIN_URL 孤儿行。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0b2a038` | (see git log) |
+| `836d074` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
