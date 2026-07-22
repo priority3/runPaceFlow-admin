@@ -38,6 +38,11 @@ docker compose -f docker-compose.example.yml up -d --build
 
 如果没有设置 `CONFIG_DATABASE_URL`，应用会回退读取 `DATABASE_URL`。本地也支持 `file:./data/admin.db`。
 
+部署注意：
+
+- `PR_HOME_LAT/LNG/LABEL` 环境变量已不再生效：常跑地点属于 PR 画像数据，改在管理界面的 PR 伙伴面板里设置（未设置时按活动轨迹起点自动推导）。
+- `NEXT_PUBLIC_ADMIN_URL` 不在配置面板管理，由主站与 admin 两侧容器的环境变量提供；换域名时改 env 并重启容器即可。
+
 ## 给主应用导出配置
 
 服务器上可以用导出接口生成主应用 `.env`：

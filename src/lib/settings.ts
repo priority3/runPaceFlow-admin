@@ -6,7 +6,6 @@ export type SettingCategory =
   | 'map'
   | 'goals'
   | 'notification'
-  | 'runtime'
   | 'analytics'
 
 export type SettingKind = 'text' | 'password' | 'url' | 'number' | 'select'
@@ -61,11 +60,6 @@ export const CATEGORY_META: Record<
     label: '通知推送',
     description: 'PushPlus 推送通知配置，用于训练日报和同步提醒。',
     accent: 'pink',
-  },
-  runtime: {
-    label: '运行时',
-    description: '前端运行时需要的公开地址。端口等部署期常量请直接在部署环境变量里配置。',
-    accent: 'gray',
   },
   analytics: {
     label: '数据分析',
@@ -262,33 +256,6 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     placeholder: 'BAAI/bge-m3',
   },
   {
-    key: 'PR_HOME_LAT',
-    label: '常跑地点纬度',
-    description:
-      '常跑地点的纬度（十进制度，如 30.6586），环境感知取天气/空气质量用。与经度成对填写才生效；不填则从活动轨迹起点聚类自动推导。',
-    category: 'pr',
-    kind: 'number',
-    placeholder: '30.6586',
-  },
-  {
-    key: 'PR_HOME_LNG',
-    label: '常跑地点经度',
-    description:
-      '常跑地点的经度（十进制度，如 104.0648），与纬度成对填写才生效；不填则从活动轨迹自动推导。',
-    category: 'pr',
-    kind: 'number',
-    placeholder: '104.0648',
-  },
-  {
-    key: 'PR_HOME_LABEL',
-    label: '常跑地点名称',
-    description:
-      '常跑地点的展示名称（如「江滩公园」），PR 描述起跑位置时会说「按<名称>」。仅在经纬度已配置时使用，可留空。',
-    category: 'pr',
-    kind: 'text',
-    placeholder: '江滩公园',
-  },
-  {
     key: 'PR_MEMORY_RECONCILE_APPLY',
     label: '记忆调和写入开关',
     description:
@@ -390,15 +357,6 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     category: 'notification',
     kind: 'password',
     sensitive: true,
-  },
-  {
-    key: 'NEXT_PUBLIC_ADMIN_URL',
-    label: 'Admin 公开地址',
-    description:
-      '主站前端上报访问分析、打开 PR 对话 H5 时使用的 admin 对外地址。填浏览器可达的公网地址（不是容器内网地址）。',
-    category: 'runtime',
-    kind: 'url',
-    placeholder: 'https://admin.example.com',
   },
   // Analytics
   {

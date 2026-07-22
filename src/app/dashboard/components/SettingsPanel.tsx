@@ -13,7 +13,6 @@ import {
   FileInput,
   MapIcon,
   MessageCircleHeart,
-  ServerCog,
   Target,
   Upload,
 } from 'lucide-react'
@@ -34,11 +33,10 @@ const CATEGORY_ICONS: Record<SettingCategory, React.ComponentType<{ className?: 
   goals: Target,
   notification: Bell,
   pr: MessageCircleHeart,
-  runtime: ServerCog,
   analytics: BarChart3,
 }
 
-const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'pr', 'map', 'goals', 'notification', 'analytics', 'runtime']
+const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'pr', 'map', 'goals', 'notification', 'analytics']
 
 export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
   const { success, error: toastError } = useToast()
