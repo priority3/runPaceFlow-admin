@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/settings-governance.md", "reason": "摘除 settings 键的守则(注册表+消费代码+孤儿行三件套);本任务是首个按守则执行的键摘除"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "schema→helper→provider→API→UI 五层,先过跨层清单"}

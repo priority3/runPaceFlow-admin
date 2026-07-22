@@ -103,3 +103,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 方案A:frontend spec 实证成文并关闭 bootstrap 任务
+
+**Date**: 2026-07-22
+**Task**: 方案A:frontend spec 实证成文并关闭 bootstrap 任务
+**Branch**: `main`
+
+### Summary
+
+执行方案A填实 .trellis/spec/frontend/:6 个并行分析 agent 深读全部 33 个 tsx(工具链/结构/组件/hook状态/类型/质量 6 维,证据均为 grep 实数),按 spec-writing 规范重写 6 个 guideline + index(英文、每条规则带真实路径与普及率、如实记录债务)。7 个对抗核查 agent 逐文件试驳:抓出 2 major(新面板实际接线到父面板而非 DashboardView,13 提交中仅 2 触 DashboardView;withAuth 覆盖 44/61 路由而非全部,17 个刻意例外)+ 8 minor(伪造示例片段、非空断言计数、React.FormEvent 零使用等),全部修正后入库 @686eef7。占位符 30→0。bootstrap prd 两项勾选回填,任务 finish+archive。注:发现未跟踪新任务目录 07-22-pr-home-location-profile(他窗创建,未动)。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `686eef7` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
