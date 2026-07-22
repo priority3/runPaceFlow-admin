@@ -9,6 +9,7 @@
 | Guide | Description | Status |
 |-------|-------------|--------|
 | [PR RAG Retrieval](./pr-rag-retrieval.md) | Knowledge-base hybrid retrieval: contracts, degradation matrix, gotchas | Active |
+| [Settings Governance](./settings-governance.md) | Registry/removal/defaultValue/read-channel rules for app_settings | Active |
 
 ---
 
