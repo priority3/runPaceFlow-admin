@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务核心就是跨层契约(注册表→store投影→export→主站merge→UI);动 defaultValue 语义前过一遍边界清单"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "读取通道统一(ai.ts/scheduler 直读env改getRuntimeSettings)属反重复收敛,按指南核对现成读取函数"}

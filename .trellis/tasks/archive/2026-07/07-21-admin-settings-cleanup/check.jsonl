@@ -1,0 +1,1 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "核查 export 输出对主站消费键逐行不变、defaultValue 语义变更两仓行为一致"}
