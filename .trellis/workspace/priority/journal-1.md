@@ -72,3 +72,34 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Trellis 任务簿记清账:三个 PR 任务证据核证后归档
+
+**Date**: 2026-07-22
+**Task**: Trellis 任务簿记清账:三个 PR 任务证据核证后归档
+**Branch**: `main`
+
+### Summary
+
+对 4 个挂账 in_progress 任务做证据审计(4 个并行核查 agent,程序化核验 results.json/commit 祖先链/代码态):07-20-pr-eval-cases-expansion(A1-A5 回填,104 条交付@491ff64,等效 104/104)、07-21-pr-boundary-weather-fixes(A1-A3 回填,v9 边界段@f5d1511 + place 城市@cdf24fc,定点 12/12 全绿)、07-21-pr-proactive-recall(注释与产物一致,4973acd..473fc60 均在 main)三者验收框按实据回填后归档。00-bootstrap-guidelines 核证为真未完成(frontend spec 6 文件仍是 init 脚手架,30 处 To be filled,仅 20e4c54 一个提交),保持打开不归档。无代码改动,零 src/ 变更。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
