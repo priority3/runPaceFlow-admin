@@ -303,6 +303,7 @@ async function ensureActivitiesSchema(client: Client) {
         injury_watchlist_json text,
         recent_state_json text,
         do_not_assume_json text,
+        home_location_json text,
         projection_version integer NOT NULL DEFAULT 1,
         source_diary_id text,
         updated_at integer DEFAULT (unixepoch()) NOT NULL
@@ -490,6 +491,16 @@ async function ensureActivitiesSchema(client: Client) {
   )
   if (!existingMemoryColumns.has('dedupe_key')) {
     await client.execute('ALTER TABLE memory_items ADD COLUMN dedupe_key text')
+  }
+
+  // friend_profile.home_location_json:常跑地点显式值(画像数据,自 app_settings 旧键迁来),
+  // 老库需显式补列(幂等)。
+  const profileColumns = await client.execute('PRAGMA table_info(friend_profile)')
+  const existingProfileColumns = new Set(
+    profileColumns.rows.map((row) => String((row as { name?: string }).name)),
+  )
+  if (!existingProfileColumns.has('home_location_json')) {
+    await client.execute('ALTER TABLE friend_profile ADD COLUMN home_location_json text')
   }
 
   await client.execute('CREATE INDEX IF NOT EXISTS idx_activities_source_id ON activities(source, source_id)')

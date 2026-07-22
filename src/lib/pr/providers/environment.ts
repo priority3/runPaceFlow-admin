@@ -2,8 +2,8 @@
  * 环境感知 provider:天气实况/预报、空气质量、时刻与日出日落 —— PR 回答
  * 「今天适合跑步吗」缺失的"身体之外"维度。设计:claudedocs/pr-agent-environment-context-design.md
  *
- * 地点:无手机定位,用「常跑地点」近似 —— app_settings/env 里 PR_HOME_LAT/PR_HOME_LNG
- * 显式配置优先;否则从最近室外活动的 GPX 起点聚类推导(0.02°≈2km 网格取众数)。
+ * 地点:无手机定位,用「常跑地点」近似 —— friend_profile.home_location_json 的显式
+ * 设置优先(PR 伙伴面板维护);否则从最近室外活动的 GPX 起点聚类推导(0.02°≈2km 网格取众数)。
  * 数据:Open-Meteo forecast + air-quality(免费无 key,与活动回填天气同厂)。
  * 红线:查不到就渲染「暂无」,绝不让模型在无数据时输出环境数值。
  * 评测:PR_ENV_FIXTURE_JSON 注入 fixture,隔离评测不依赖真实外网(可复现)。
@@ -12,7 +12,6 @@ import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
 import { activities } from '@/lib/db/activities-schema'
-import { getRuntimeSetting } from '@/lib/runtime-config'
 import {
   fetchCurrentAirQuality,
   fetchForecast,
@@ -21,6 +20,8 @@ import {
   type ForecastData,
   type ForecastHour,
 } from '@/lib/weather/open-meteo'
+
+import { getExplicitHomeLocation } from '../home-location'
 
 import type { ContextBlock, ContextProvider } from './types'
 
@@ -118,31 +119,40 @@ async function deriveLocationFromActivities(): Promise<HomeLocation | null> {
 }
 
 /**
- * 常跑地点(显式配置优先,否则活动起点聚类;带 TTL 缓存)。
+ * 常跑地点(显式设置优先,否则活动起点聚类;带 TTL 缓存)。
  * 导出给 activities provider 算 startPlace(起点相对常跑地点的方位),别处也可复用。
  */
 export async function getHomeLocation(): Promise<HomeLocation | null> {
   // Reason: fixture 模式(评测)地点也以 fixture 为准——startPlace 等派生值可复现,
-  // 不受评测机真实配置库里 PR_HOME_* 的影响;生产无 fixture,此分支不生效。
+  // 不受评测机真实画像库里显式地点的影响;生产无 fixture,此分支不生效。
   const fixture = readFixture()
   if (fixture?.location) return fixture.location
   if (locationCache && Date.now() - locationCache.at < LOCATION_TTL_MS) return locationCache.value
 
   let value: HomeLocation | null = null
-  const [latRaw, lngRaw, labelRaw] = await Promise.all([
-    getRuntimeSetting('PR_HOME_LAT'),
-    getRuntimeSetting('PR_HOME_LNG'),
-    getRuntimeSetting('PR_HOME_LABEL'),
-  ])
-  const lat = Number(latRaw)
-  const lng = Number(lngRaw)
-  if (latRaw && lngRaw && validCoord(lat, lng)) {
-    value = { lat, lng, label: labelRaw ? `按${labelRaw}` : '按你配置的常驻位置' }
+  // 显式值读 friend_profile.home_location_json(画像数据);坏数据/未设置由 helper 归一成 null。
+  const explicit = await getExplicitHomeLocation().catch(() => null)
+  if (explicit) {
+    value = {
+      lat: explicit.lat,
+      lng: explicit.lng,
+      label: explicit.label ? `按${explicit.label}` : '按你设置的常跑地点',
+    }
   } else {
     value = await deriveLocationFromActivities().catch(() => null)
   }
   locationCache = { at: Date.now(), value }
   return value
+}
+
+/**
+ * 清空常跑地点缓存与环境快照缓存。
+ * Reason: 面板保存/清除显式地点后调用,同进程下一次构建上下文立即用新地点——
+ * 环境快照(envCache)里嵌着旧地点的天气,所以两个缓存必须一起清,不能只清 locationCache。
+ */
+export function invalidateHomeLocationCache(): void {
+  locationCache = null
+  envCache = null
 }
 
 async function getEnvPayload(): Promise<EnvPayload | null> {
@@ -262,7 +272,7 @@ export const environmentProvider: ContextProvider = {
     const payload = await getEnvPayload()
     if (!payload) {
       const location = await getHomeLocation().catch(() => null)
-      return unavailableBlock(location ? '天气服务未响应' : '还没有可定位的常跑地点,可配置 PR_HOME_LAT/PR_HOME_LNG')
+      return unavailableBlock(location ? '天气服务未响应' : '还没有可定位的常跑地点,可在 PR 伙伴面板设置')
     }
     const nowLocal = readFixture()?.nowLocal ?? shanghaiNowLocal()
     return {

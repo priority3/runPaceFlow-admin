@@ -315,6 +315,9 @@ export const friendProfile = sqliteTable('friend_profile', {
   injuryWatchlistJson: text('injury_watchlist_json'),
   recentStateJson: text('recent_state_json'),
   doNotAssumeJson: text('do_not_assume_json'),
+  // 常跑地点显式值 JSON: { lat, lng, label?, setAt }。属用户画像("我平时在哪跑步"),
+  // 不是服务配置——由 app_settings 旧三键迁来,读写归 src/lib/pr/home-location.ts。
+  homeLocationJson: text('home_location_json'),
   projectionVersion: integer('projection_version').notNull().default(1),
   sourceDiaryId: text('source_diary_id'),
   updatedAt: integer('updated_at', { mode: 'timestamp' })
