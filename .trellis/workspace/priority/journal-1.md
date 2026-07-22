@@ -38,3 +38,37 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: admin 配置管理瘦身落地
+
+**Date**: 2026-07-22
+**Task**: admin 配置管理瘦身落地
+**Branch**: `main`
+
+### Summary
+
+42→38 键:预设整块移除(占位符覆盖真实 DATABASE_URL 的危险按钮)、5 个 env-only/假旋钮键摘除、微信测试号 5 键连路由 sender 全套退役、6 个幽灵键转正入新 pr 分类、全部保留键描述重写(凭据附获取方式)。机制修复:defaultValue 不再冒充已配置值经 export 覆盖主站 env;ai.ts/scheduler/cron 12 处 env 直读统一 getRuntimeSettings;无鉴权死端点 /api/settings/public 退役;新增孤儿行清理脚本(dry-run 默认)。审计 5 视角+实现 6 agent,tsc/lint 绿,门禁隔离库实测通过。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e456ccc` | (see git log) |
+| `ca11854` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
