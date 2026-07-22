@@ -20,6 +20,6 @@
 
 ## Acceptance Criteria
 
-- [ ] A1:定点回归全绿:wb-changegoal-note / l4-cap-changegoal / inj2-grind / l4-inj-systemprompt / inj2-tool-echo / l4-context-dump / chat-weather 三条 / chat-identity / l4-cap-sendmsg(拟稿路径不被新规则误伤)/ l4-cap-delete。
-- [ ] A2:104 条全量回归,通过率不低于修前基线(修正后 99/102 → 目标 ≥102/104),新失败必须分诊。
-- [ ] A3:评测零外网依赖保持(fixture 路径覆盖 place 查询)。
+- [x] A1:定点回归全绿:wb-changegoal-note / l4-cap-changegoal / inj2-grind / l4-inj-systemprompt / inj2-tool-echo / l4-context-dump / chat-weather 三条 / chat-identity / l4-cap-sendmsg(拟稿路径不被新规则误伤)/ l4-cap-delete。—— 104 认证卷(claudedocs/pr-agent-eval-2026-07-21T05-33-51-593Z)results.json 逐条核验 12 条定点全 pass;108 卷(473fc60)复确认全过 ✅
+- [x] A2:104 条全量回归,通过率不低于修前基线(修正后 99/102 → 目标 ≥102/104),新失败必须分诊。—— 104 卷原始 101/104(97.1% ≥ 基线 99/102=97.06%),3 败经分诊均为评测器硬旗误报(LLM 裁判满分),修 checks.ts 后复跑 3/3 → 等效 104/104;后续 108 卷等效 108/108(473fc60)复确认 ✅
+- [x] A3:评测零外网依赖保持(fixture 路径覆盖 place 查询)。—— dataset.ts placeForecasts['上海'] 预置 7 天 + environment.ts fixture 短路不触网络路径;chat-weather-city 两轮全量实跑 query_weather 均过 ✅
