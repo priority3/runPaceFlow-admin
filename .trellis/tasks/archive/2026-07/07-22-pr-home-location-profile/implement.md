@@ -19,7 +19,10 @@
 - 验证:tsc + lint;dev 起服务手动过一遍三操作。
 
 ### 4. settings 摘除 + 收尾
-- [ ] settings.ts 删三键(38→35);grep 全仓无 PR_HOME_ 残留(.trellis/claudedocs 除外);README 部署段补一句 env 配置不再生效。
+- [ ] settings.ts 删 PR_HOME_ 三键 + NEXT_PUBLIC_ADMIN_URL(38→34);runtime 分类清空则连分组定义一起删(SettingCategory/CATEGORY_META/SettingsPanel 图标与 CATEGORY_ORDER 同步)。
+- [ ] 消费方核查:dispatcher 与主站对 NEXT_PUBLIC_ADMIN_URL 的读取走 settings 合并层(env 供给),代码零改动;grep 全仓无 PR_HOME_ 残留(.trellis/claudedocs 除外)。
+- [ ] README 部署段:PR_HOME_* env 不再生效;NEXT_PUBLIC_ADMIN_URL 由两侧容器 env 提供,换域名=改 env+重启。
+- [ ] 部署后 prune 脚本清 NEXT_PUBLIC_ADMIN_URL 孤儿行(生产库现有 1 行)。
 - [ ] 全量 lint+tsc;trellis-check;提交。
 
 ## 回滚点

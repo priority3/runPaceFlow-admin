@@ -23,6 +23,6 @@
 
 1. PR 伙伴面板可查看当前生效地点及来源(显式设置 / 按常跑路线推导 / 未知),可保存显式地点(lat/lng 校验合法范围)、可清除回退推导;
 2. 保存后天气 provider 下一次构建上下文即用新地点(TTL 缓存内允许 ≤10 分钟延迟或主动失效);
-3. `PR_HOME_LAT/LNG/LABEL` 从 SETTING_DEFINITIONS 与全部消费代码移除,配置面板 38→35 键;
+3. `PR_HOME_LAT/LNG/LABEL` 与 `NEXT_PUBLIC_ADMIN_URL`(用户裁定:部署期常量,改它必伴随换域名的部署级操作,不需要 UI 可配)从 SETTING_DEFINITIONS 与消费读取中摘除,配置面板 38→34 键,runtime 分类清空移除;NEXT_PUBLIC_ADMIN_URL 的消费方改由 env 供给且行为不变(主站 compose 已有 env,dispatcher 有默认域兜底);
 4. 评测 fixture 优先级不变,eval 全链路不受影响;
 5. lint + tsc 通过;部署后无 schema 迁移事故(runtime ALTER 幂等)。

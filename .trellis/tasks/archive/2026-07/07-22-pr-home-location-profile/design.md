@@ -35,11 +35,13 @@ else value = await deriveLocationFromActivities()
 - 编辑:纬度/经度/名称三输入 + 保存 + 清除(回退推导);输入框下给一行帮助文案(从地图 App 长按取坐标);
 - 显示推导预览:source=derived 时展示推导出的坐标,一键「采用为显式值」(把推导值填进表单)。
 
-## settings 三键摘除
+## settings 摘除(四键,38→34)
 
-- `settings.ts` 删 PR_HOME_LAT/LNG/LABEL 注册(38→35);
+- `settings.ts` 删 PR_HOME_LAT/LNG/LABEL 注册;
 - environment.ts 删 getRuntimeSetting 三连读;
-- 生产库零数据(2026-07-22 部署时已验证),无数据迁移;若个别环境 env 里配过 PR_HOME_*,行为变化为回退聚类推导——README 部署段提一句。
+- **追加(用户裁定):`NEXT_PUBLIC_ADMIN_URL` 一并摘除**——运行时被消费 ≠ 需要运行时可配:改它的唯一场景是换域名/隧道,那是部署级操作,env 顺手改即可。消费方不动(dispatcher 与主站 runtime-config 仍经 settings 合并层读取,env 供给):主站 compose 已有 env 兜底,admin 侧 dispatcher 硬编码默认域覆盖现部署;摘除后生产库该键的行成孤儿(prune 处理)。runtime 分类自此清空,连 CATEGORY_META/CATEGORY_ORDER 的 runtime 分组一起删;
+- 生产库 PR_HOME_ 零数据(2026-07-22 部署时已验证),无数据迁移;若个别环境 env 里配过 PR_HOME_*,行为变化为回退聚类推导——README 部署段提一句;
+- README 部署段记录:NEXT_PUBLIC_ADMIN_URL 由两侧容器 env 提供,换域名时改 env + 重启。
 
 ## 风险
 
