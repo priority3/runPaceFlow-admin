@@ -21,8 +21,8 @@ the rest conversationally.
 
 ## Status (update the checkboxes as you complete each item)
 
-- [ ] Fill frontend guidelines
-- [ ] Add code examples
+- [x] Fill frontend guidelines —— 2026-07-22:6 个 guideline + index 全部重写为代码实证内容(6 维并行分析全部 33 个 tsx,逐文件对抗核查,2 major/8 minor 修正后入库;30 处 To be filled 占位符清零)
+- [x] Add code examples —— 每个 guide 含真实代码片段(monitor/page.tsx server shell、shared.tsx StatCard、MemoryPanel fetch 惯用式、DashboardView 轮询首载守卫等),全部逐字核验自源码,零虚构示例
 
 ---
 

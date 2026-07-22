@@ -1,12 +1,12 @@
 # Frontend Development Guidelines
 
-> Best practices for frontend development in this project.
+> Conventions for the runpaceflow-admin UI layer, extracted from the real codebase (2026-07-22 audit of all 33 .tsx files). Sub-agents: read the relevant guide before writing frontend code.
 
 ---
 
-## Overview
+## Stack Snapshot
 
-This directory contains guidelines for frontend development. Fill in each file with your project's specific conventions.
+Next.js App Router (canary) + React 19 (RC), client-heavy SPA-in-Next: one server shell per route → one big client view with useState tab switching. Tailwind CSS v4 (CSS-first, tokens in `src/styles/globals.css`), `cn()` = clsx+twMerge, lucide-react icons, in-house toast. **No** React Query/SWR/zustand, no tests, no formatter — see the guides for what that implies. Package manager: bun; gates: `bun run lint` + `bun run type-check`.
 
 ---
 
@@ -14,26 +14,19 @@ This directory contains guidelines for frontend development. Fill in each file w
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
-| [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
-| [State Management](./state-management.md) | Local state, global state, server state | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
+| [Directory Structure](./directory-structure.md) | src layout, route anatomy, feature colocation, naming, imports | Active |
+| [Component Guidelines](./component-guidelines.md) | Component shape, styling tokens, icons, loading/error/empty, interactivity, a11y | Active |
+| [Hook Guidelines](./hook-guidelines.md) | The inline fetch idiom, mount kickoff, polling, custom-hook bar | Active |
+| [State Management](./state-management.md) | State categories, server-state lifecycle, two mutation channels, auth state | Active |
+| [Type Safety](./type-safety.md) | Fetch-boundary contract, where types live, narrowing, any-census | Active |
+| [Quality Guidelines](./quality-guidelines.md) | Gates, forbidden/required patterns, comments, security, review checklist | Active |
 
 ---
 
-## How to Fill These Guidelines
+## Cross-Cutting Rules
 
-For each guideline file:
+- **Canonical templates**: new dashboard panel → copy the shape of `src/app/dashboard/components/SchedulerPanel.tsx` / `MemoryPanel.tsx`; new page → `src/app/monitor/page.tsx` + `MonitorDashboard.tsx` pair.
+- **`src/app/pr/page.tsx` is an island** (own brand system, own auth, own dark mode). Its patterns don't generalize outward, and dashboard patterns don't leak in.
+- **Document reality**: these guides describe what the code does, including known debt (500-line violations, silent-catch legacy, duplicated types). Fixing debt is a separate task decision, not a drive-by.
 
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
-
----
-
-**Language**: All documentation should be written in **English**.
+**Language**: documentation in English; inline code comments follow repo convention (Chinese, `// Reason:` for non-obvious choices). UI copy is Simplified Chinese.
