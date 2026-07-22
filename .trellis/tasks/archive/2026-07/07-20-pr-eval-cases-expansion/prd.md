@@ -44,8 +44,8 @@
 
 ## Acceptance Criteria
 
-- [ ] A1:用例总数 100–110,语法/类型检查通过,每个新维度至少 1 条代表用例 `--case` 冒烟通过。
-- [ ] A2:today 冻结生效——dataset 的日期函数在 run 内多次调用返回一致(含 judge 路径)。
-- [ ] A3:empty/stale 档用例的日志可见对应库状态(空库无活动、stale 库最近活动 60+ 天前)。
-- [ ] A4:全量 ~105 条跑通出报告;新增用例的失败经真伪分诊(真缺陷 vs 裁判问题)后写入报告结论。
-- [ ] A5:git diff 确认零 src/ 改动。
+- [x] A1:用例总数 100–110,语法/类型检查通过,每个新维度至少 1 条代表用例 `--case` 冒烟通过。—— 491ff64 交付 104 条(∈100–110;现 HEAD 109 系后续任务 +5),bun build 732 模块 0 错;11 个新维度共 52 条全部进入全量跑(散卷冒烟日志按惯例未留存,由全量结果取代)✅
+- [x] A2:today 冻结生效——dataset 的日期函数在 run 内多次调用返回一致(含 judge 路径)。—— dataset.ts RUN_NOW 模块加载即冻结,shanghaiToday/daysAgoDate 同源;judge 同进程共用 factSummaryForJudge;归档审计实测多次调用返回一致 ✅
+- [x] A3:empty/stale 档用例的日志可见对应库状态(空库无活动、stale 库最近活动 60+ 天前)。—— 104 卷 results.json:deg-empty-* 快照 recentActivityCount:0 / lastRunDaysAgo:null;deg-stale-week 答「上次跑步 83 天前」(seed 后移 75 天);6 条退化态全过 ✅
+- [x] A4:全量 ~105 条跑通出报告;新增用例的失败经真伪分诊(真缺陷 vs 裁判问题)后写入报告结论。—— claudedocs/pr-agent-eval-2026-07-21T05-33-51-593Z:104 条 101 过 / 3 败,triage.md 分诊 3 败全为评测器硬旗误报(LLM 裁判均满分,非真缺陷),修 checks.ts 后复跑 3/3 过 → 等效 104/104 ✅
+- [x] A5:git diff 确认零 src/ 改动。—— git show --stat 491ff64:30 个文件全在 scripts/eval/** + tsconfig 一行排除,零 src/ 改动;配套 flushOtel 系独立提交 f84c991(记账在 07-21-pr-boundary-weather-fixes)✅
