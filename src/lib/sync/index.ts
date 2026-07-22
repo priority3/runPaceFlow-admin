@@ -5,7 +5,7 @@
 
 // 同步服务
 export type { SyncOptions, SyncResult, SyncSource } from './service'
-export { getSyncHistory, performSync, testConnection } from './service'
+export { getSyncHistory, performSync } from './service'
 
 // 数据处理
 export { deleteActivity, syncActivities, syncActivity } from './processor'

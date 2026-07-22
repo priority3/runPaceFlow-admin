@@ -2,7 +2,7 @@
  * Data Retention Policy
  *
  * Automatically cleans up old analytics data to manage database size.
- * Configurable retention period via RETENTION_DAYS setting.
+ * Configurable retention period via ANALYTICS_RETENTION_DAYS setting.
  */
 
 import { ensureSchema, getDb } from './db'

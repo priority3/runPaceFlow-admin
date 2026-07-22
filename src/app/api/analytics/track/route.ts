@@ -43,6 +43,8 @@ export async function OPTIONS(request: Request) {
 
 export async function POST(request: Request) {
   // Rate limit: 30 requests per minute per IP
+  // Reason: 限流阈值刻意硬编码,不做成设置项——此前的 ANALYTICS_RATE_LIMIT 是从未被读取的假旋钮,已删;
+  // 该阈值属防滥用兜底,无运行时调整需求。
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
   const rateLimitResponse = rateLimit(`track:${ip}`, 30, 60_000)
   if (rateLimitResponse) {

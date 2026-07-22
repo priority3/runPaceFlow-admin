@@ -5,15 +5,10 @@ import { notificationDeliveries } from '@/lib/db/activities-schema'
 import { sendPushPlus } from '@/lib/notify'
 import { getRuntimeSettings } from '@/lib/runtime-config'
 
-import {
-  sendWeChatTestAccountTemplate,
-  sendWeChatTestAccountText,
-  type WeChatTestAccountConfig,
-} from './wechat-test-account'
-
 /** 把 PR 文本内容 + H5 对话链接组装成 PushPlus 的 HTML 正文。 */
 function buildPushPlusHtml(content: string, settings: Record<string, string>): string {
-  const base = (settings.NEXT_PUBLIC_ADMIN_URL || settings.NEXT_PUBLIC_APP_URL || 'https://runpaceflow-admin.razet.me').replace(/\/$/, '')
+  // Reason: 硬编码域名是部署默认域,仅在 NEXT_PUBLIC_ADMIN_URL 未配置时作最后兜底。
+  const base = (settings.NEXT_PUBLIC_ADMIN_URL || 'https://runpaceflow-admin.razet.me').replace(/\/$/, '')
   const token = settings.PR_CHAT_TOKEN
   const link = token ? `${base}/pr?t=${encodeURIComponent(token)}` : `${base}/pr`
   const body = content
@@ -36,15 +31,6 @@ const MAX_ATTEMPTS = 3
 function nextRetry(attempts: number) {
   const delayMinutes = Math.min(60, Math.max(1, attempts) * 5)
   return new Date(Date.now() + delayMinutes * 60 * 1000)
-}
-
-function buildConfig(settings: Record<string, string>): WeChatTestAccountConfig {
-  return {
-    appId: settings.WECHAT_TEST_ACCOUNT_APP_ID ?? '',
-    appSecret: settings.WECHAT_TEST_ACCOUNT_APP_SECRET ?? '',
-    templateId: settings.WECHAT_TEST_ACCOUNT_TEMPLATE_ID ?? '',
-    openId: settings.WECHAT_TEST_ACCOUNT_OPEN_ID ?? '',
-  }
 }
 
 async function claimPending(limit: number, workerId: string) {
@@ -86,8 +72,6 @@ export async function dispatchPendingNotifications(limit = 10): Promise<Notifica
   const workerId = `worker_${Date.now().toString(36)}`
   const rows = await claimPending(limit, workerId)
   const settings = await getRuntimeSettings({ force: true })
-  const config = buildConfig(settings)
-  const appUrl = settings.NEXT_PUBLIC_ADMIN_URL || settings.NEXT_PUBLIC_APP_URL
 
   const result: NotificationDispatchResult = {
     claimed: rows.length,
@@ -124,54 +108,18 @@ export async function dispatchPendingNotifications(limit = 10): Promise<Notifica
         continue
       }
 
-      if (row.channel !== 'wechat_test_account') {
-        result.skipped++
-        await db
-          .update(notificationDeliveries)
-          .set({
-            status: 'failed',
-            attempts: row.attempts + 1,
-            errorCode: 'unsupported_channel',
-            lastError: `Unsupported channel: ${row.channel}`,
-            lockedBy: null,
-            lockedUntil: null,
-            nextRetryAt: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(notificationDeliveries.id, row.id))
-        continue
-      }
-
-      // Prefer a plain-text customer-service message (full content, reads like a chat
-      // message). Fall back to the template card if the 48h CS window is closed.
-      let sent: { providerMessageId?: string }
-      try {
-        sent = await sendWeChatTestAccountText(config, { title: row.title, content: row.content })
-      } catch (textErr) {
-        console.warn(
-          '[dispatch] 客服文本消息发送失败,回退模板消息:',
-          textErr instanceof Error ? textErr.message : String(textErr),
-        )
-        sent = await sendWeChatTestAccountTemplate(config, {
-          title: row.title,
-          content: row.content,
-          url: appUrl || undefined,
-        })
-      }
-
-      result.sent++
+      // 微信测试号渠道已退役,遗留的其他渠道行统一标记失败,避免死循环重投。
+      result.skipped++
       await db
         .update(notificationDeliveries)
         .set({
-          status: 'sent',
+          status: 'failed',
           attempts: row.attempts + 1,
-          providerMessageId: sent.providerMessageId,
-          lastError: null,
-          errorCode: null,
+          errorCode: 'unsupported_channel',
+          lastError: `Unsupported channel: ${row.channel}`,
           lockedBy: null,
           lockedUntil: null,
           nextRetryAt: null,
-          sentAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(notificationDeliveries.id, row.id))

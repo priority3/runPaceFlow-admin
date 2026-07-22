@@ -68,13 +68,13 @@ function createAdapter(
 ): SyncAdapter {
   switch (source) {
     case 'nike': {
-      const accessToken = profile.nikeAccessToken || settings.NIKE_ACCESS_TOKEN
-      const refreshToken = settings.NIKE_REFRESH_TOKEN
-      const token = refreshToken || accessToken
+      // Reason: NIKE_ACCESS_TOKEN/NIKE_REFRESH_TOKEN 从未注册进设置表(幽灵键),
+      // 全仓也无 nike 源的同步调用方;仅保留 profile 里的历史 token 通路。
+      const token = profile.nikeAccessToken
       if (!token) {
         throw new Error('No token found for nike')
       }
-      return new NikeAdapter(token, refreshToken || undefined)
+      return new NikeAdapter(token)
     }
     case 'strava': {
       const clientId = settings.STRAVA_CLIENT_ID
@@ -283,21 +283,4 @@ async function updateLastSyncTime(source: SyncSource): Promise<void> {
 export async function getSyncHistory(limit = 10) {
   const db = await getDb()
   return await db.select().from(syncLogs).orderBy(syncLogs.startedAt).limit(limit)
-}
-
-/**
- * 测试数据源连接
- * @param source 数据源
- * @returns 是否连接成功
- */
-export async function testConnection(source: SyncSource): Promise<boolean> {
-  try {
-    const profile = await getUserProfile()
-    const settings = await getRuntimeSettings({ force: true })
-    const adapter = createAdapter(source, profile, settings)
-    return await adapter.authenticate({})
-  } catch (error) {
-    console.error(`Connection test failed for ${source}:`, error)
-    return false
-  }
 }
