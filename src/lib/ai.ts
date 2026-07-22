@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 
 import { getDb } from './db'
+import { getRuntimeSettings } from './runtime-config'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -207,16 +208,19 @@ ${splitsStr}
 const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-4-20250514'
 const OPENAI_DEFAULT_MODEL = 'gpt-4o'
 
-async function generateWithClaude(input: ActivityInsightInput): Promise<AIGenerationResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+async function generateWithClaude(
+  input: ActivityInsightInput,
+  settings: Record<string, string>,
+): Promise<AIGenerationResult> {
+  const apiKey = settings.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
 
   const client = new Anthropic({
     apiKey,
-    ...(process.env.ANTHROPIC_BASE_URL && { baseURL: process.env.ANTHROPIC_BASE_URL }),
+    ...(settings.ANTHROPIC_BASE_URL && { baseURL: settings.ANTHROPIC_BASE_URL }),
   })
 
-  const model = process.env.ANTHROPIC_MODEL || CLAUDE_DEFAULT_MODEL
+  const model = settings.ANTHROPIC_MODEL || CLAUDE_DEFAULT_MODEL
 
   const response = await client.messages.create({
     model,
@@ -234,18 +238,21 @@ async function generateWithClaude(input: ActivityInsightInput): Promise<AIGenera
   return { content: textContent.text, model, provider: 'claude' }
 }
 
-async function generateWithOpenAI(input: ActivityInsightInput): Promise<AIGenerationResult> {
-  const apiKey = process.env.OPENAI_API_KEY
+async function generateWithOpenAI(
+  input: ActivityInsightInput,
+  settings: Record<string, string>,
+): Promise<AIGenerationResult> {
+  const apiKey = settings.OPENAI_API_KEY
   if (!apiKey) throw new Error('OPENAI_API_KEY not set')
 
   const client = new OpenAI({
     apiKey,
-    ...(process.env.OPENAI_BASE_URL && { baseURL: process.env.OPENAI_BASE_URL }),
+    ...(settings.OPENAI_BASE_URL && { baseURL: settings.OPENAI_BASE_URL }),
   })
 
-  const model = process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL
+  const model = settings.OPENAI_MODEL || OPENAI_DEFAULT_MODEL
 
-  if (process.env.OPENAI_API_FORMAT === 'responses') {
+  if (settings.OPENAI_API_FORMAT === 'responses') {
     const response = await client.responses.create({
       model,
       instructions: buildSystemPrompt(),
@@ -278,13 +285,15 @@ async function generateWithOpenAI(input: ActivityInsightInput): Promise<AIGenera
 // ─── Provider Orchestrator ──────────────────────────────────────────────────
 
 async function generateInsight(input: ActivityInsightInput): Promise<AIGenerationResult> {
+  // Reason: 统一走运行时配置(库行覆盖 env),UI 改凭据后定时任务无需重启即可生效
+  const settings = await getRuntimeSettings()
   const providers: Array<{ name: string; fn: () => Promise<AIGenerationResult> }> = []
 
-  if (process.env.ANTHROPIC_API_KEY) {
-    providers.push({ name: 'Claude', fn: () => generateWithClaude(input) })
+  if (settings.ANTHROPIC_API_KEY) {
+    providers.push({ name: 'Claude', fn: () => generateWithClaude(input, settings) })
   }
-  if (process.env.OPENAI_API_KEY) {
-    providers.push({ name: 'OpenAI', fn: () => generateWithOpenAI(input) })
+  if (settings.OPENAI_API_KEY) {
+    providers.push({ name: 'OpenAI', fn: () => generateWithOpenAI(input, settings) })
   }
 
   if (providers.length === 0) {

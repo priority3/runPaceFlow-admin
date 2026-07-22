@@ -12,10 +12,10 @@ import {
   EyeOff,
   FileInput,
   MapIcon,
+  MessageCircleHeart,
   ServerCog,
   Target,
   Upload,
-  Zap,
 } from 'lucide-react'
 
 import { exportEnvAction, importEnvAction, saveSettingsAction } from '@/app/actions'
@@ -33,14 +33,15 @@ const CATEGORY_ICONS: Record<SettingCategory, React.ComponentType<{ className?: 
   map: MapIcon,
   goals: Target,
   notification: Bell,
+  pr: MessageCircleHeart,
   runtime: ServerCog,
   analytics: BarChart3,
 }
 
-const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'map', 'goals', 'notification', 'analytics', 'runtime']
+const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'pr', 'map', 'goals', 'notification', 'analytics', 'runtime']
 
 export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
-  const { success, error: toastError, info } = useToast()
+  const { success, error: toastError } = useToast()
   const [activeCategory, setActiveCategory] = useState<SettingCategory>('database')
   const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({})
   const [exportText, setExportText] = useState('')
@@ -48,8 +49,6 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
   // Reason: 用 useActionState 接住 saveSettingsAction 的返回值，才能展示保存成功/失败反馈
   const [saveState, saveAction, saving] = useActionState(saveSettingsAction, null)
   const [exporting, startExportTransition] = useTransition()
-  // Reason: 应用预设会立即覆盖并保存当前配置，需二次确认；记录待确认的预设名
-  const [confirmingPreset, setConfirmingPreset] = useState<string | null>(null)
 
   // Reason: saveState 变化时弹一次 toast；用 savedAt 去重，避免重渲染重复触发
   const lastSavedAtRef = useRef<number>(0)
@@ -88,24 +87,6 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
     })
   }
 
-  async function applyPreset(preset: Record<string, string | undefined>) {
-    setConfirmingPreset(null)
-    const form = document.getElementById('settings-form') as HTMLFormElement | null
-    if (!form) return
-
-    for (const [key, value] of Object.entries(preset)) {
-      if (!value) continue
-      const input = form.querySelector(`[name="setting:${key}"]`) as HTMLInputElement | HTMLSelectElement | null
-      if (input) {
-        input.value = value
-      }
-    }
-
-    // Reason: 表单 action 已绑定 saveAction，requestSubmit 会自动触发保存并弹出成功 toast
-    form.requestSubmit()
-    info('预设已填入并保存，请检查并补充敏感信息（如 API Key）')
-  }
-
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 space-y-6">
       <header className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
@@ -122,112 +103,6 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
           {saving ? '保存中...' : '保存配置'}
         </button>
       </header>
-
-      {/* Quick Setup Presets */}
-      <section>
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Zap className="h-4 w-4" />
-          快速配置预设
-        </h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            {
-              name: '开发环境',
-              desc: '本地 SQLite + 基础配置',
-              icon: '🔧',
-              values: {
-                DATABASE_URL: 'file:./data/activities.db',
-                NEXT_PUBLIC_MAP_STYLE: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-                PORT: '3000',
-              },
-            },
-            {
-              name: '腾讯云生产',
-              desc: 'Turso + PushPlus + AI',
-              icon: '☁️',
-              values: {
-                DATABASE_URL: 'libsql://your-turso-db.turso.io',
-                NEXT_PUBLIC_MAP_STYLE: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-                NEXT_PUBLIC_WEEKLY_RUNNING_DISTANCE_GOAL: '10000',
-                NEXT_PUBLIC_MONTHLY_RUNNING_DISTANCE_GOAL: '50000',
-                NEXT_PUBLIC_WEEKLY_CYCLING_DISTANCE_GOAL: '40000',
-                NEXT_PUBLIC_MONTHLY_CYCLING_DISTANCE_GOAL: '160000',
-                PORT: '3000',
-              },
-            },
-            {
-              name: 'Strava 用户',
-              desc: 'Strava 同步配置',
-              icon: '🚴',
-              values: {
-                DATABASE_URL: 'libsql://your-turso-db.turso.io',
-                NEXT_PUBLIC_MAP_STYLE: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-              },
-            },
-            {
-              name: 'AI 增强',
-              desc: '启用 Claude + OpenAI 分析',
-              icon: '🤖',
-              values: {
-                DATABASE_URL: 'libsql://your-turso-db.turso.io',
-                NEXT_PUBLIC_MAP_STYLE: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-                OPENAI_MODEL: 'gpt-4o',
-                OPENAI_API_FORMAT: 'chat',
-              },
-            },
-            {
-              name: '通知推送',
-              desc: 'PushPlus 微信通知',
-              icon: '🔔',
-              values: {
-                DATABASE_URL: 'libsql://your-turso-db.turso.io',
-                NEXT_PUBLIC_MAP_STYLE: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-              },
-            },
-          ].map(preset => (
-            <div key={preset.name} className="bg-card rounded-lg border p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-lg">{preset.icon}</span>
-                <span className="text-sm font-medium">{preset.name}</span>
-              </div>
-              <p className="text-muted-foreground text-xs mb-3">{preset.desc}</p>
-              {confirmingPreset === preset.name ? (
-                <div className="space-y-2">
-                  <p className="text-amber-600 text-xs">将覆盖当前配置并立即保存？</p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => applyPreset(preset.values)}
-                      disabled={saving}
-                      className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium shadow-sm transition-colors disabled:opacity-50"
-                    >
-                      <Zap className="h-3 w-3" />
-                      确认应用
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmingPreset(null)}
-                      className="bg-background hover:bg-accent flex h-8 items-center rounded-md border px-3 text-xs shadow-sm transition-colors"
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setConfirmingPreset(preset.name)}
-                  disabled={saving}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium shadow-sm transition-colors disabled:opacity-50"
-                >
-                  <Zap className="h-3 w-3" />
-                  应用预设
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
 
       <SetupDiagnostic />
 
@@ -262,7 +137,8 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
       <form id="settings-form" action={saveAction} className="bg-card rounded-lg border shadow-sm overflow-hidden">
         {activeDefinitions.map(def => {
           const setting = settingsByKey.get(def.key)
-          const value = setting?.value ?? def.defaultValue ?? ''
+          // Reason: 未配置键的库层 value 已改为空串,UI 回显默认值需显式回落 defaultValue
+          const value = setting?.exists ? setting.value : (def.defaultValue ?? '')
           const visible = visibleSecrets[def.key]
           const inputType = def.kind === 'password' && !visible ? 'password' : def.kind === 'number' ? 'number' : 'text'
 

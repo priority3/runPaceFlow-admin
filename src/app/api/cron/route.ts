@@ -14,6 +14,7 @@ import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
 import { manualSync, manualInsights, manualNotify, manualWeeklyReview, manualDailyReview, manualStravaEventDrain } from '@/lib/scheduler'
 import { generateAnalyticsDigest, sendPushPlus } from '@/lib/notify'
 import { cleanupOldData } from '@/lib/retention'
+import { getRuntimeSetting } from '@/lib/runtime-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,13 +67,8 @@ export const POST = withAuth(async (request) => {
       break
     case 'analytics-digest': {
       const digest = await generateAnalyticsDigest()
-      const { getDb } = await import('@/lib/db')
-      const db = getDb()
-      const tokenResult = await db.execute({
-        sql: `SELECT value FROM app_settings WHERE key = 'PUSHPLUS_TOKEN'`,
-        args: [],
-      })
-      const pushToken = tokenResult.rows[0]?.value as string
+      // Reason: 裸 SQL 读 app_settings 拿不到解密后的敏感值,统一走运行时配置读取
+      const pushToken = await getRuntimeSetting('PUSHPLUS_TOKEN')
       if (!pushToken) {
         result = { success: false, message: 'PUSHPLUS_TOKEN not configured' }
         break

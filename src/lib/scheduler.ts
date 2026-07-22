@@ -66,7 +66,8 @@ async function jobSyncAndNotify() {
     const syncedCount = await syncActivities()
 
     if (syncedCount > 0) {
-      const token = process.env.PUSHPLUS_TOKEN
+      // Reason: 走运行时配置读取,UI 改 token 立即对调度推送生效
+      const token = await getRuntimeSetting('PUSHPLUS_TOKEN')
       if (token) {
         try {
           await sendPushPlus(token, `🏃 同步完成 - 新增 ${syncedCount} 条活动`, `<p>已同步 ${syncedCount} 条新的运动记录到数据库。</p>`)
@@ -125,7 +126,7 @@ async function jobDailyReport() {
   console.log('[Scheduler] Running daily report job...')
   const startTime = Date.now()
 
-  const token = process.env.PUSHPLUS_TOKEN
+  const token = await getRuntimeSetting('PUSHPLUS_TOKEN')
   if (!token) {
     console.warn('[Scheduler] PUSHPLUS_TOKEN not set, skipping daily report')
     await recordJobRun('daily_report', 'skipped: PUSHPLUS_TOKEN not set')
@@ -283,7 +284,7 @@ export async function manualInsights(): Promise<{ success: boolean; message: str
 }
 
 export async function manualNotify(): Promise<{ success: boolean; message: string }> {
-  const token = process.env.PUSHPLUS_TOKEN
+  const token = await getRuntimeSetting('PUSHPLUS_TOKEN')
   if (!token) {
     return { success: false, message: 'PUSHPLUS_TOKEN not set' }
   }

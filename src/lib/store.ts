@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto'
 import { decryptValue, encryptValue } from './crypto'
 import { ensureSchema, getDb } from './db'
 import { SETTING_DEFINITIONS, getSettingDefinition, isSensitiveSetting } from './settings'
-import { publishSettingsChanged } from './settings-events'
 
 export interface StoredSetting {
   key: string
@@ -47,9 +46,11 @@ export async function listSettings() {
     const existing = stored.get(definition.key)
     if (existing) return existing
 
+    // Reason: 未配置的键 value 一律为空串,defaultValue 只留给 UI 层做展示兜底——
+    // 否则默认值会经 getSettingsMap/exportSettings 冒充"已配置值"下发覆盖主站 env
     return {
       key: definition.key,
-      value: definition.defaultValue ?? '',
+      value: '',
       isSensitive: definition.sensitive ?? false,
       description: definition.description,
       updatedAt: null,
@@ -60,7 +61,12 @@ export async function listSettings() {
 
 export async function getSettingsMap() {
   const settings = await listSettings()
-  return Object.fromEntries(settings.map((setting) => [setting.key, setting.value]))
+  // 只投影有库行且非空的值,保证"库行才覆盖 env"的合并语义
+  return Object.fromEntries(
+    settings
+      .filter((setting) => setting.exists && setting.value !== '')
+      .map((setting) => [setting.key, setting.value]),
+  )
 }
 
 export async function upsertSetting(key: string, value: string) {
@@ -89,8 +95,6 @@ export async function updateSettings(entries: Record<string, string>) {
   for (const [key, value] of Object.entries(entries)) {
     await upsertSetting(key, value)
   }
-
-  publishSettingsChanged(Object.keys(entries))
 }
 
 export async function importSettings(entries: Record<string, string>) {
@@ -108,8 +112,9 @@ export async function importSettings(entries: Record<string, string>) {
 
 export async function exportSettings({ includeEmpty = false } = {}) {
   const settings = await listSettings()
+  // Reason: 导出只含有库行的键——未配置键(即便注册表带 defaultValue)不该进入分发通道
   return settings
-    .filter((setting) => includeEmpty || setting.value !== '')
+    .filter((setting) => setting.exists && (includeEmpty || setting.value !== ''))
     .map((setting) => ({ key: setting.key, value: setting.value }))
 }
 
