@@ -7,6 +7,8 @@ let client: Client | null = null
 let initialized = false
 
 function getDatabaseUrl() {
+  // admin 自己的配置/分析库(app_settings、scheduler、访问统计)。优先专用键 CONFIG_DATABASE_URL;
+  // DATABASE_URL 仅作历史兼容兜底 —— 它语义上是「主站库地址」(见 .env.example 三角色说明),勿与本库混用。
   const url = process.env.CONFIG_DATABASE_URL || process.env.DATABASE_URL || 'file:./data/admin.db'
 
   if (url.startsWith('file:')) {

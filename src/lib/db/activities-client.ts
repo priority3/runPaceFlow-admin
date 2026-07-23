@@ -57,14 +57,16 @@ async function getDatabaseConfig(): Promise<DatabaseConfig> {
     console.warn('[activities-client] 读取运行时配置失败:', (error as Error).message)
   }
 
+  // Reason: 活动库只认专用键 ACTIVITIES_DATABASE_URL(env 优先,其次 app_settings)。
+  // 绝不回退到 settings.DATABASE_URL —— 该键在 app_settings 里是「导出给主站前端」的库地址
+  // (现网即远程 Turso)。若在此回退,一旦 ACTIVITIES_DATABASE_URL 缺失,活动/PR 数据会被
+  // 静默写进主站库(数据分裂根源);宁可走下方本地默认库兜底,也不借用主站地址。
   const url =
     process.env.ACTIVITIES_DATABASE_URL ||
-    settings.ACTIVITIES_DATABASE_URL ||
-    settings.DATABASE_URL
+    settings.ACTIVITIES_DATABASE_URL
   const authToken =
     process.env.ACTIVITIES_DATABASE_AUTH_TOKEN ||
-    settings.ACTIVITIES_DATABASE_AUTH_TOKEN ||
-    settings.DATABASE_AUTH_TOKEN
+    settings.ACTIVITIES_DATABASE_AUTH_TOKEN
 
   if (url) {
     const config: DatabaseConfig = { url, authToken }
