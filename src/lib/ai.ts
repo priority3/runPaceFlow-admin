@@ -6,9 +6,10 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { createClient, type Client } from '@libsql/client'
 import OpenAI from 'openai'
 
-import { getDb } from './db'
+import { getActivitiesClient } from './db/activities-client'
 import { getRuntimeSettings } from './runtime-config'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -318,13 +319,38 @@ function generateInsightId(): string {
   return `insight_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 }
 
+let insightsDbCache: { client: Client; signature: string } | undefined
+
+/**
+ * 主站活动库连接（activities / activity_insights 所在库）。
+ *
+ * Reason: admin 配置库（getDb → admin.db）里没有 activities 表；而部署环境的
+ * ACTIVITIES_DATABASE_URL env 指向历史遗留的 shared.db，与主站实际使用的库
+ * （settings 导出的 DATABASE_URL，即前端读端）已经分裂。AI 分析必须与站点
+ * 读端同库，否则生成结果前端永远看不到。
+ */
+async function getInsightsDb(): Promise<Client> {
+  const settings = await getRuntimeSettings()
+  const url = settings.DATABASE_URL
+  if (!url) {
+    // 未配置主站库（本地开发 / 首次部署）：退回活动库解析链
+    return getActivitiesClient()
+  }
+  const authToken = settings.DATABASE_AUTH_TOKEN || undefined
+  const signature = `${url}\n${authToken ?? ''}`
+  if (!insightsDbCache || insightsDbCache.signature !== signature) {
+    insightsDbCache = { client: createClient({ url, authToken }), signature }
+  }
+  return insightsDbCache.client
+}
+
 /**
  * Generate AI insight for a single activity and cache to database.
  */
 export async function generateInsightForActivity(
   activityId: string,
 ): Promise<AIGenerationResult | null> {
-  const db = getDb()
+  const db = await getInsightsDb()
 
   // Check if insight already exists
   const existing = await db.execute({
@@ -375,7 +401,7 @@ export async function generateInsightForActivity(
  * Returns the number of newly generated insights.
  */
 export async function generateInsightsForUncached(): Promise<number> {
-  const db = getDb()
+  const db = await getInsightsDb()
 
   // Find activities without cached insights
   const result = await db.execute(`
