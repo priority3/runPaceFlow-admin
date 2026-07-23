@@ -211,6 +211,9 @@ export async function callPrModel(
 
     let useTools = Boolean(opts.tools?.length && opts.executeTool)
     let useCache = true
+    // 置位后 buildParams 追加 tool_choice:'none',协议层禁止模型再发起 tool_use,逼其产出正文。
+    // Reason: 软 error tool_result 只是"请"模型收口,grok 系模型会把它当工具失败而重试 → 空转到轮次耗尽报错。
+    let forceFinalAnswer = false
     const tools: Anthropic.Tool[] | undefined = useTools
       ? opts.tools!.map(tool => ({
           name: tool.name,
@@ -232,11 +235,14 @@ export async function callPrModel(
         : system,
       messages,
       ...(useTools && tools ? { tools } : {}),
+      // 轮次耗尽后硬禁工具:tools 仍须保留(历史含 tool_use 时 API 强制要求),改用 tool_choice 关闭调用。
+      ...(forceFinalAnswer && useTools ? { tool_choice: { type: 'none' as const } } : {}),
     })
 
     // Agent 循环:模型要调工具 → 本地执行 → 结果喂回 → 直到产出正式回答。
-    // 注意:消息里一旦出现 tool_use 块,后续请求必须继续带 tools 参数,
-    // 所以轮次耗尽时不去掉 tools,而是用错误 tool_result 逼模型直接作答。
+    // 注意:消息里一旦出现 tool_use 块,后续请求必须继续带 tools 参数,不能删。
+    // 所以轮次耗尽时不去掉 tools,而是置 forceFinalAnswer → 用 tool_choice:'none' 硬禁调用逼模型作答
+    // (只塞文本 tool_result "请直接回答" 是软约束,grok 系模型会无视并重试,故改硬约束)。
     // trace 里放消息预览:文本原样、tool_result 摘要、图片等块只留类型标记(base64 绝不入 trace)
     const previewMessage = (message: Anthropic.MessageParam): string =>
       clip(
@@ -348,11 +354,13 @@ export async function callPrModel(
         resetStreamedText() // 本轮流出的 text 只是工具前的过场白,客户端清掉等最终轮
         messages.push({ role: 'assistant', content: response.content })
         const exhausted = round >= maxToolRounds
+        if (exhausted) forceFinalAnswer = true // 下一轮 tool_choice:'none' 硬禁工具,逼出正文
         const results: Anthropic.ToolResultBlockParam[] = []
         for (const block of toolUseBlocks) {
           let result: string
           if (exhausted) {
-            result = JSON.stringify({ error: '工具轮次已用完,请基于已有信息直接回答' })
+            // 用正常文本而非 error:grok 系模型会把 error 当"工具失败"而重试;下一轮已 tool_choice:'none' 兜底。
+            result = '已获取足够信息,请立即基于以上结果用最终结论直接回答用户,不要再调用任何工具。'
           } else {
             try {
               result = await withSpan(
@@ -398,9 +406,12 @@ export async function callPrModel(
         `No text content in Claude response (stop=${response.stop_reason}, blocks=[${response.content.map(block => block.type).join(',')}])`,
       )
     }
-    // 工具轮用尽仍没拿到正式回答:优先返回途中攒的文本(镜像空响应兜底),而不是直接抛。
+    // 工具轮用尽仍没拿到正式回答:优先返回途中攒的文本(镜像空响应兜底)。
     if (interimText) return { content: interimText, model, provider: 'claude' }
-    throw new Error('Tool loop exhausted without a final answer')
+    // 兜底:tool_choice:'none' 正常已能逼出正文;真走到这说明模型连硬约束都无视且全程无文本。
+    // 与其抛错让前端显示"网络出错",不如回一句可读文案,保证 PR 对话永不因此报错。
+    console.warn('[pr-model] 工具轮用尽且无任何正文,返回兜底文案 (model=%s)', model)
+    return { content: '抱歉,我这次没能得出结论,请再问我一次或换个说法。', model, provider: 'claude' }
   }
 
   // OpenAI 兼容路径:多轮 turns 一一映射;不支持 tools/图片/缓存(网关实际走 Anthropic)。
