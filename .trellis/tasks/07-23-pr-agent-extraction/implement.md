@@ -1,6 +1,6 @@
 # Implement — PR agent 抽离为独立自部署项目
 
-> 执行原则:**拷贝式抽离,不动现网 admin**;每阶段可独立编译/验证/回滚;单用户假设不破。目标新仓 `running-companion-agent`(位置待 P0 定)。保真基线 = 现有 eval harness + /pr e2e。
+> 执行原则:**拷贝式抽离,不动现网 admin**;每阶段可独立编译/验证/回滚;单用户假设不破。目标新仓 `pr-agent`(位置待 P0 定)。保真基线 = 现有 eval harness + /pr e2e。
 
 ## 阶段总览
 
@@ -17,7 +17,7 @@
 ---
 
 ## P0 — 脚手架与落位(Hono + Vite,去 Next)
-- [ ] 定目标仓位置(独立 repo `running-companion-agent`;先本地建,git init)。
+- [ ] 定目标仓位置(独立 repo `pr-agent`;先本地建,git init)。
 - [ ] 双目录骨架(design §9):`server/`(Hono on Bun)+ `client/`(Vite React)。
 - [ ] 依赖:server `hono @anthropic-ai/sdk openai @libsql/client drizzle-orm nanoid node-cron`(可选 `@opentelemetry/api`);client `react react-dom vite @vitejs/plugin-react`(dashboard 用 `lucide-react`)。
 - **验证**:`bun run server`(Hono 起 3030 返 200)+ `vite build`(出 client 静态)+ Hono `serveStatic` 托管静态首页通。

@@ -117,7 +117,7 @@
 ## 9. 目标 repo 结构(建议)
 
 ```
-running-companion-agent/
+pr-agent/
 ├─ server/                   # Hono(Bun)
 │  ├─ index.ts               # Hono app:挂路由 + serveStatic(client 构建产物)+ scheduler init
 │  ├─ routes/{pr,health,activities}.ts   # 22 路由(含 reviews 重命名到 /api/pr/reviews)
