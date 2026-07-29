@@ -55,10 +55,13 @@ export async function getPerformanceStats(days = 7): Promise<PerformanceStats> {
       args: [start],
     }),
     db.execute({
+      // Reason: OFFSET 只接受整数,而 COUNT(*) * 0.95 是浮点 —— 样本数不是 20 的倍数时
+      // SQLite 直接抛 SQLITE_MISMATCH(整个 /api/analytics/stats 因此 500)。必须 CAST 取整,
+      // 口径与 getPerformanceTrend 的 `rn = CAST(cnt * 0.95 AS INTEGER) + 1` 保持一致。
       sql: `SELECT load_time FROM page_views
             WHERE created_at >= ? AND load_time IS NOT NULL
             ORDER BY load_time LIMIT 1
-            OFFSET (SELECT MAX(0, COUNT(*) - COUNT(*) * 0.05) FROM page_views WHERE created_at >= ? AND load_time IS NOT NULL)`,
+            OFFSET (SELECT CAST(COUNT(*) * 0.95 AS INTEGER) FROM page_views WHERE created_at >= ? AND load_time IS NOT NULL)`,
       args: [start, start],
     }),
   ])

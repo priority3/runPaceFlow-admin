@@ -27,6 +27,25 @@ function extractBearerToken(headerValue: string | null): string | null {
 }
 
 /**
+ * Standard 500 response for an unexpected handler failure.
+ *
+ * Reason: 500 以前只回给前端、服务端不落日志,而前端多是静默 catch,
+ * 症状就成了"生产页面白屏、容器日志干净",排查只能靠猜(例如 analytics
+ * 的 p95 查询抛 SQLITE_MISMATCH 导致整页"无法加载分析数据")。这里必须留痕。
+ */
+function internalError(request: Request, error: unknown): NextResponse {
+  let route = request.url
+  try {
+    route = new URL(request.url).pathname
+  } catch {}
+  console.error(`[api] ${request.method} ${route} 处理失败:`, error)
+  return NextResponse.json(
+    { error: error instanceof Error ? error.message : 'Internal error' },
+    { status: 500 },
+  )
+}
+
+/**
  * Wraps a route handler with authentication and error handling.
  * Returns 401 for auth failures, 500 for unexpected errors.
  */
@@ -39,10 +58,7 @@ export function withAuth<TContext = unknown>(handler: RouteHandler<TContext>): R
       if (error instanceof Error && error.message === 'Unauthorized') {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'Internal error' },
-        { status: 500 },
-      )
+      return internalError(request, error)
     }
   }
 }
@@ -83,10 +99,7 @@ export function withHealthImportAuth<TContext = unknown>(
 
       return await handler(request, context)
     } catch (error) {
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'Internal error' },
-        { status: 500 },
-      )
+      return internalError(request, error)
     }
   }
 }
@@ -121,10 +134,7 @@ export function withPrChatAuth<TContext = unknown>(
 
       return await handler(request, context)
     } catch (error) {
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'Internal error' },
-        { status: 500 },
-      )
+      return internalError(request, error)
     }
   }
 }
@@ -155,10 +165,7 @@ export function withAuthParams<P>(
       if (error instanceof Error && error.message === 'Unauthorized') {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'Internal error' },
-        { status: 500 },
-      )
+      return internalError(request, error)
     }
   }
 }

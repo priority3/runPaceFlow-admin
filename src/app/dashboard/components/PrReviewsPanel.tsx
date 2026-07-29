@@ -74,35 +74,35 @@ export function PrReviewsPanel() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-white/80">
+        <h3 className="flex items-center gap-2 text-sm font-medium">
           <MessageSquareText className="h-4 w-4" /> PR 最近的话
         </h3>
         <button type="button" onClick={fetchReviews}
-          className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/60 hover:bg-white/10">
+          className="bg-muted text-muted-foreground hover:bg-accent inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
           <RefreshCw className="h-3 w-3" /> 刷新
         </button>
       </div>
 
-      {loadError && <p className="text-sm text-rose-400">{loadError}</p>}
+      {loadError && <p className="text-sm text-rose-600">{loadError}</p>}
 
       {reviews.length ? (
         <div className="space-y-2">
           {reviews.map(review => (
-            <div key={review.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <div key={review.id} className="bg-card rounded-lg border p-3 shadow-sm">
               <div className="mb-1.5 flex items-center gap-2 text-xs">
-                <span className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-white/70">
+                <span className="bg-muted text-muted-foreground rounded border px-1.5 py-0.5">
                   {KIND_LABEL[review.kind] ?? review.kind}
                 </span>
-                <span className="text-white/50">{review.subjectId}</span>
-                <span className={cn('text-white/40', review.provider === 'local-rule' && 'text-amber-400/70')}>
+                <span className="text-muted-foreground">{review.subjectId}</span>
+                <span className={cn('text-muted-foreground', review.provider === 'local-rule' && 'text-amber-700')}>
                   {review.provider === 'local-rule' ? '规则兜底' : review.model}
                 </span>
-                <span className="ml-auto text-white/30">{formatDateTime(review.createdAt)}</span>
+                <span className="text-muted-foreground ml-auto">{formatDateTime(review.createdAt)}</span>
               </div>
-              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-white/85">{review.content}</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{review.content}</p>
               <div className="mt-2">
                 <button type="button" disabled={busyId === review.id} onClick={() => resend(review.id)}
-                  className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/60 hover:bg-white/10 disabled:opacity-50">
+                  className="bg-muted text-muted-foreground hover:bg-accent inline-flex items-center gap-1 rounded px-2 py-1 text-xs disabled:opacity-50">
                   <Send className="h-3 w-3" /> 重发微信
                 </button>
               </div>
@@ -110,7 +110,7 @@ export function PrReviewsPanel() {
           ))}
         </div>
       ) : (
-        <p className="rounded-lg border border-dashed border-white/10 p-3 text-sm text-white/40">
+        <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
           暂无反思。每天健康数据上报后 PR 会写一条晨间反思。
         </p>
       )}
