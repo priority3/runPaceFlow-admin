@@ -31,17 +31,20 @@ const TYPE_LABEL: Record<string, string> = {
 
 const TYPE_OPTIONS = Object.keys(TYPE_LABEL)
 
+// Reason: 面板早期按深色皮肤写死了 white/* 与 *-300 文字色,但本项目只有浅色一套
+// 主题(globals.css 仅 :root + color-scheme: light),结果白字白底整段读不出来。
+// 统一改用语义 token,徽章取浅底深字。
 function typeClass(type: string) {
   switch (type) {
     case 'correction':
-      return 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+      return 'border-rose-200 bg-rose-50 text-rose-700'
     case 'injury':
     case 'risk_pattern':
-      return 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+      return 'border-amber-200 bg-amber-50 text-amber-700'
     case 'goal':
-      return 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+      return 'border-sky-200 bg-sky-50 text-sky-700'
     default:
-      return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   }
 }
 
@@ -127,7 +130,7 @@ export function MemoryPanel() {
     const isEditing = editing === memory.id
     const busy = busyId === memory.id
     return (
-      <div key={memory.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+      <div key={memory.id} className="bg-card rounded-lg border p-3 shadow-sm">
         <div className="flex items-start gap-2">
           <span className={cn('shrink-0 rounded border px-1.5 py-0.5 text-xs', typeClass(memory.type))}>
             {TYPE_LABEL[memory.type] ?? memory.type}
@@ -139,12 +142,12 @@ export function MemoryPanel() {
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
                   rows={2}
-                  className="w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white"
+                  className="bg-background w-full rounded border px-2 py-1 text-sm"
                 />
                 <select
                   value={editType}
                   onChange={e => setEditType(e.target.value)}
-                  className="rounded border border-white/15 bg-black/30 px-2 py-1 text-xs text-white"
+                  className="bg-background rounded border px-2 py-1 text-xs"
                 >
                   {TYPE_OPTIONS.map(t => (
                     <option key={t} value={t}>{TYPE_LABEL[t]}</option>
@@ -152,9 +155,9 @@ export function MemoryPanel() {
                 </select>
               </div>
             ) : (
-              <p className="break-words text-sm text-white/90">{memory.content}</p>
+              <p className="break-words text-sm">{memory.content}</p>
             )}
-            <p className="mt-1 text-xs text-white/40">
+            <p className="text-muted-foreground mt-1 text-xs">
               置信 {memory.confidence.toFixed(2)} · 证据 {memory.evidence?.length ?? 0} · {formatDateTime(memory.lastSeenAt)}
             </p>
           </div>
@@ -163,11 +166,11 @@ export function MemoryPanel() {
           {isEditing ? (
             <>
               <button type="button" disabled={busy} onClick={() => saveEdit(memory.id)}
-                className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50">
+                className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-1 text-xs text-emerald-800 hover:bg-emerald-200 disabled:opacity-50">
                 <Check className="h-3 w-3" /> 保存
               </button>
               <button type="button" onClick={() => setEditing(null)}
-                className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/60 hover:bg-white/10">
+                className="bg-muted text-muted-foreground hover:bg-accent inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
                 <X className="h-3 w-3" /> 取消
               </button>
             </>
@@ -175,16 +178,16 @@ export function MemoryPanel() {
             <>
               {memory.status === 'candidate' && (
                 <button type="button" disabled={busy} onClick={() => act(memory.id, 'confirm', '确认')}
-                  className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50">
+                  className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-1 text-xs text-emerald-800 hover:bg-emerald-200 disabled:opacity-50">
                   <Check className="h-3 w-3" /> 确认
                 </button>
               )}
               <button type="button" disabled={busy} onClick={() => startEdit(memory)}
-                className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50">
+                className="bg-muted text-muted-foreground hover:bg-accent inline-flex items-center gap-1 rounded px-2 py-1 text-xs disabled:opacity-50">
                 <Pencil className="h-3 w-3" /> 编辑
               </button>
               <button type="button" disabled={busy} onClick={() => act(memory.id, 'archive', '归档/纠正')}
-                className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/50 hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-50">
+                className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded px-2 py-1 text-xs hover:bg-rose-100 hover:text-rose-700 disabled:opacity-50">
                 <Archive className="h-3 w-3" /> 归档
               </button>
             </>
@@ -199,36 +202,36 @@ export function MemoryPanel() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-white/80">
+        <h3 className="flex items-center gap-2 text-sm font-medium">
           <Brain className="h-4 w-4" /> PR 的记忆
         </h3>
         <button type="button" onClick={fetchMemories}
-          className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/60 hover:bg-white/10">
+          className="bg-muted text-muted-foreground hover:bg-accent inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
           <RefreshCw className="h-3 w-3" /> 刷新
         </button>
       </div>
 
-      {loadError && <p className="text-sm text-rose-400">{loadError}</p>}
+      {loadError && <p className="text-sm text-rose-600">{loadError}</p>}
 
       <div>
-        <p className="mb-2 text-xs uppercase tracking-wide text-white/40">
+        <p className="text-muted-foreground mb-2 text-xs uppercase tracking-wide">
           待确认候选（{candidates.length}）· 确认后才会影响 PR 对你的判断
         </p>
         {candidates.length ? (
           <div className="space-y-2">{candidates.map(renderRow)}</div>
         ) : (
-          <p className="rounded-lg border border-dashed border-white/10 p-3 text-sm text-white/40">
+          <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
             暂无候选记忆。等你和 PR 聊天或反馈时，它会蒸馏出候选放这里。
           </p>
         )}
       </div>
 
       <div>
-        <p className="mb-2 text-xs uppercase tracking-wide text-white/40">已生效（{actives.length}）</p>
+        <p className="text-muted-foreground mb-2 text-xs uppercase tracking-wide">已生效（{actives.length}）</p>
         {actives.length ? (
           <div className="space-y-2">{actives.map(renderRow)}</div>
         ) : (
-          <p className="rounded-lg border border-dashed border-white/10 p-3 text-sm text-white/40">
+          <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
             还没有生效记忆。确认候选或多次证据累积后会出现在这里。
           </p>
         )}

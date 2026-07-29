@@ -59,6 +59,6 @@ All UI copy is hardcoded Simplified Chinese with technical terms in English (Cro
 ## Common Mistakes (seen in this repo — don't repeat)
 
 - Re-declaring shared things locally: duplicate `LoadingState` (AnalyticsPanel), duplicate `ActivityStats` interface (OverviewPanel + ActivitiesPanel), two different `ServiceCard`s (shared.tsx vs MonitorDashboard.tsx). Import from `./shared` / `@/lib` types instead.
-- `MemoryPanel.tsx` styles itself for a dark surface (`text-white/80`, `bg-white/[0.03]`) inside a light `bg-card` container — broken contrast; stick to semantic tokens.
+- Styling a dashboard panel for a dark surface (`text-white/80`, `bg-white/[0.03]`, `bg-black/30` inputs, `text-*-300` badges) inside a light `bg-card` container. This shipped to production in the 4 PR-companion panels (MemoryPanel / PrReviewsPanel / HealthRecoveryPanel / HomeLocationCard) and rendered white-on-white — the content was there, only the color made it unreadable. Fixed 2026-07-29 by moving to semantic tokens; the dark-surface assumption is only valid inside the `src/app/pr` island. Symptom to recognize: a panel where only colored badges/buttons are visible.
 - `window.alert()` for errors (2 legacy sites in pr/page.tsx) — use toast.
 - Growing a panel past 500 lines (ActivitiesPanel at 822 is debt, not license).

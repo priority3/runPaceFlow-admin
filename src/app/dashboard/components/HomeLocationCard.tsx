@@ -26,10 +26,11 @@ interface LocationState {
   source: 'explicit' | 'derived' | 'none'
 }
 
+// Reason: 项目只有浅色一套主题,原来的 *-300 / white/* 文字色在白底上读不出来。
 const SOURCE_BADGE: Record<LocationState['source'], { label: string; cls: string }> = {
-  explicit: { label: '显式设置', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
-  derived: { label: '按常跑路线推导', cls: 'bg-sky-500/15 text-sky-300 border-sky-500/30' },
-  none: { label: '未知', cls: 'bg-white/10 text-white/50 border-white/15' },
+  explicit: { label: '显式设置', cls: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+  derived: { label: '按常跑路线推导', cls: 'border-sky-200 bg-sky-50 text-sky-700' },
+  none: { label: '未知', cls: 'bg-muted text-muted-foreground' },
 }
 
 const API_PATH = '/api/pr/profile/home-location'
@@ -146,33 +147,33 @@ export function HomeLocationCard() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-white/80">
+        <h3 className="flex items-center gap-2 text-sm font-medium">
           <MapPin className="h-4 w-4" /> 常跑地点
         </h3>
         <button type="button" onClick={fetchState}
-          className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/60 hover:bg-white/10">
+          className="bg-muted text-muted-foreground hover:bg-accent inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
           <RefreshCw className="h-3 w-3" /> 刷新
         </button>
       </div>
 
-      {loadError && <p className="text-sm text-rose-400">{loadError}</p>}
+      {loadError && <p className="text-sm text-rose-600">{loadError}</p>}
 
-      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+      <div className="bg-card rounded-lg border p-3 shadow-sm">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             {effective ? (
               <>
-                <p className="text-sm tabular-nums text-white/90">
+                <p className="text-sm tabular-nums">
                   {effective.lat.toFixed(5)}, {effective.lng.toFixed(5)}
                 </p>
-                <p className="mt-1 text-xs text-white/40">
+                <p className="text-muted-foreground mt-1 text-xs">
                   {source === 'explicit' && explicit
                     ? `${explicit.label ?? '未命名'} · 设置于 ${explicit.setAt ? formatDateTime(explicit.setAt) : '时间未知'}`
                     : '来自最近室外活动起点的聚类'}
                 </p>
               </>
             ) : (
-              <p className="text-sm text-white/40">
+              <p className="text-muted-foreground text-sm">
                 还没有可定位的常跑地点——保存显式坐标，或等有带 GPS 的室外活动后自动推导。
               </p>
             )}
@@ -181,34 +182,34 @@ export function HomeLocationCard() {
         </div>
         {source === 'derived' && effective && (
           <button type="button" onClick={adoptDerived}
-            className="mt-2 inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/70 hover:bg-white/10">
+            className="bg-muted text-muted-foreground hover:bg-accent mt-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
             <Crosshair className="h-3 w-3" /> 采用为显式值
           </button>
         )}
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs uppercase tracking-wide text-white/40">显式设置（优先于自动推导）</p>
+        <p className="text-muted-foreground text-xs uppercase tracking-wide">显式设置（优先于自动推导）</p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <input value={latInput} onChange={e => setLatInput(e.target.value)}
             inputMode="decimal" placeholder="纬度，如 31.2304"
-            className="w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30" />
+            className="bg-background placeholder:text-muted-foreground w-full rounded border px-2 py-1 text-sm" />
           <input value={lngInput} onChange={e => setLngInput(e.target.value)}
             inputMode="decimal" placeholder="经度，如 121.4737"
-            className="w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30" />
+            className="bg-background placeholder:text-muted-foreground w-full rounded border px-2 py-1 text-sm" />
           <input value={labelInput} onChange={e => setLabelInput(e.target.value)}
             maxLength={30} placeholder="名称（可选），如 世纪公园"
-            className="col-span-2 w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30 sm:col-span-1" />
+            className="bg-background placeholder:text-muted-foreground col-span-2 w-full rounded border px-2 py-1 text-sm sm:col-span-1" />
         </div>
-        <p className="text-xs text-white/40">在地图 App 里长按目标位置即可复制经纬度，粘贴到上面。</p>
+        <p className="text-muted-foreground text-xs">在地图 App 里长按目标位置即可复制经纬度，粘贴到上面。</p>
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={busy} onClick={save}
-            className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50">
+            className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-1 text-xs text-emerald-800 hover:bg-emerald-200 disabled:opacity-50">
             <Check className="h-3 w-3" /> 保存
           </button>
           {explicit && (
             <button type="button" disabled={busy} onClick={clearExplicit}
-              className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/50 hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-50">
+              className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded px-2 py-1 text-xs hover:bg-rose-100 hover:text-rose-700 disabled:opacity-50">
               <Trash2 className="h-3 w-3" /> 清除（回退自动推导）
             </button>
           )}
