@@ -6,9 +6,10 @@
 
 - **Q1 数据边界 → 全自包含**。自有单文件 SQLite/libsql,装 24 表核心集(22 PR-owned + `activities` + `splits`)。跨界 FK 只有 3 处指向 `activities`(见 §2),把 `activities` 纳入即闭合,零残留耦合。
 - **Q2 活动数据默认来源 → 新增通用导入端点** `POST /api/activities/import`(接 `RawActivity`/GPX summary JSON),作一等公民;Keep/Strava 降级为可选适配器。这样自部署者**零第三方账号**也能喂进跑步数据(配合 Apple 健康摄入)。
-- **Q3 dashboard 管理面 → 内置 mini-admin**。5 个面板耦合很轻,保留为内置管理页(非纯 API)。
+- **Q3 dashboard 管理面 → (2026-07-29 用户决定推翻)纯 API,界面由宿主提供**。原定「内置 mini-admin」是我在规划时自拍的;用户明确 **pr-agent 只保留 H5 对话页,管理全部回 runPaceFlow-admin 已有的「PR 伙伴」面板**。已删 `client/dashboard/`,管理端点保留但无内置界面。
 - **Q4 技术栈 → 去 Next,改 Hono(Bun)后端 + Vite React 静态 H5**,单进程/单容器(见 §1/§6)。理由:H5 是纯 React(零 Next 运行时 API)、SSE 是 Web 标准 `ReadableStream`、API 对 Next 仅浅耦合(`NextResponse`/`next/server`/`cookies()`),agent 核心与框架无关——Next 的 SSR/RSC/文件路由全未用上,却带来 canary/turbopack/require-hook 一堆构建坑(见 memory)。
 - **activities 真相源(2026-07-23 定)→ 方案甲:不与主站合并**。主站继续用远程 Turso、归主站;PR agent 抽离后**自持本地库 + 自带摄入**,两者解耦。审计 P1「本地 shared.db ↔ 主站 Turso 分裂」由抽离本身化解,**现网零迁移、无高风险动作**(见 [[research/db-audit.md]] C 级不做)。
+- **⚠️ 2026-07-29 修订(随 Q3 反转)→ 本部署改为「pr-agent 与 admin 共用 `shared.db`」**。因为管理界面回到 admin(admin 直接读库,不经 pr-agent API),要让"admin 面板管的"就是"pr-agent 聊的"那份数据,两者必须同库。做法:pr-agent 容器挂 admin 的 `rpf_shared_data` 卷,`DATABASE_URL=file:/app/shared/shared.db`,并设 **`PR_SCHEDULER=off`**(否则两边都跑同一批定时任务 → 同一份数据被复盘两遍、通知推两次)。**注意**:此后 pr-agent 在"本部署"不再自持数据(对开源用户默认仍是 `data/pr.db`,共库纯属部署配置)。动库前已做一致性备份(`VACUUM INTO`,存 heyun `/root/backups/`;⚠️ 单拷 `shared.db` 会丢 WAL 里的数据)。
 
 ## 1. 目标形态与技术栈
 
