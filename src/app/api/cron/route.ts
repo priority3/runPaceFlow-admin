@@ -10,8 +10,8 @@
 import { NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/api-helpers'
-import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
-import { manualSync, manualInsights, manualNotify, manualWeeklyReview, manualDailyReview, manualStravaEventDrain } from '@/lib/scheduler'
+import { prAgentFetch } from '@/lib/pr-agent-client'
+import { manualSync, manualInsights, manualNotify, manualStravaEventDrain } from '@/lib/scheduler'
 import { generateAnalyticsDigest, sendPushPlus } from '@/lib/notify'
 import { cleanupOldData } from '@/lib/retention'
 import { getRuntimeSetting } from '@/lib/runtime-config'
@@ -19,6 +19,23 @@ import { getRuntimeSetting } from '@/lib/runtime-config'
 export const dynamic = 'force-dynamic'
 
 const VALID_ACTIONS = ['sync', 'insights', 'notify', 'notification-dispatch', 'weekly-review', 'daily-review', 'strava-event-drain', 'analytics-digest', 'retention-cleanup'] as const
+
+/**
+ * PR 域的手动触发转发给 pr-agent(那边是逻辑 owner,定时任务也归它)。
+ * 把对方的 JSON 压成本接口既有的 { success, message } 形状,前端无需改。
+ */
+async function triggerOnPrAgent(path: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await prAgentFetch(path, { method: 'POST' })
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
+    if (!response.ok) {
+      return { success: false, message: String(payload.error ?? `pr-agent 返回 ${response.status}`) }
+    }
+    return { success: true, message: JSON.stringify(payload) }
+  } catch (error) {
+    return { success: false, message: `pr-agent 不可达:${(error as Error).message}` }
+  }
+}
 
 export const POST = withAuth(async (request) => {
   let body: { action?: string }
@@ -48,19 +65,14 @@ export const POST = withAuth(async (request) => {
     case 'notify':
       result = await manualNotify()
       break
-    case 'notification-dispatch': {
-      const dispatched = await dispatchPendingNotifications(10)
-      result = {
-        success: dispatched.failed === 0,
-        message: `PR notifications: ${dispatched.sent} sent, ${dispatched.failed} failed, ${dispatched.skipped} skipped`,
-      }
+    case 'notification-dispatch':
+      result = await triggerOnPrAgent('/api/pr/notifications/dispatch')
       break
-    }
     case 'weekly-review':
-      result = await manualWeeklyReview()
+      result = await triggerOnPrAgent('/api/pr/weekly-review')
       break
     case 'daily-review':
-      result = await manualDailyReview()
+      result = await triggerOnPrAgent('/api/pr/daily-review')
       break
     case 'strava-event-drain':
       result = await manualStravaEventDrain()

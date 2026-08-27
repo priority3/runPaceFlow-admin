@@ -89,3 +89,39 @@ export async function prAgentGetJson<T>(path: string): Promise<T> {
   }
   return (await response.json()) as T
 }
+
+export interface ReviewBatchResult {
+  generated: number
+  skipped: number
+  failed: number
+  notified: number
+}
+
+/**
+ * 同步完成后请 pr-agent 为这批活动生成复盘。
+ *
+ * Reason: 数据摄入的 owner 在本仓(Keep/Strava adapters、webhook),复盘的 owner 在
+ * pr-agent。此前本仓直接 import 对方的等价实现,现改为一次 HTTP 调用。
+ *
+ * 失败不抛错、只落日志并返回全零:活动此刻已经同步入库了,复盘生成不该把整个同步
+ * 判成失败(调用方会把本结果原样回给前端/webhook,零值即"这批没生成")。漏掉的活动
+ * 由 pr-agent 自己的定时复盘兜底。
+ */
+export async function requestPrReviewBatch(activityIds: string[]): Promise<ReviewBatchResult> {
+  const empty: ReviewBatchResult = { generated: 0, skipped: 0, failed: 0, notified: 0 }
+  if (activityIds.length === 0 || !isPrAgentConfigured()) return empty
+
+  try {
+    const response = await prAgentFetch('/api/pr/reviews/generate-batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ activityIds }),
+    })
+    if (!response.ok) throw new Error(`返回 ${response.status}`)
+    return (await response.json()) as ReviewBatchResult
+  } catch (error) {
+    console.error(`[pr-agent] 批量生成复盘失败(${activityIds.length} 条活动):`, error)
+    return empty
+  }
+}
+
