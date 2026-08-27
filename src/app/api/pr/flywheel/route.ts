@@ -1,15 +1,7 @@
-import { NextResponse } from 'next/server'
-
 import { withAuth } from '@/lib/api-helpers'
-import { getPrFlywheel } from '@/lib/pr/metrics'
+import { proxyToPrAgent } from '@/lib/pr-agent-client'
 
 export const dynamic = 'force-dynamic'
 
-export const GET = withAuth(async (request) => {
-  const url = new URL(request.url)
-  const daysParam = Number(url.searchParams.get('days') ?? 30)
-  const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 365) : 30
-  const flywheel = await getPrFlywheel(days)
-
-  return NextResponse.json({ flywheel })
-})
+/** 转发到 pr-agent(PR 逻辑 owner);本仓只保留同源入口 + admin 会话鉴权。见 lib/pr-agent-client.ts。 */
+export const GET = withAuth(request => proxyToPrAgent(request, '/api/pr/flywheel'))

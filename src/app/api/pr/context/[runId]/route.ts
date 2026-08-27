@@ -1,16 +1,10 @@
-import { NextResponse } from 'next/server'
-
 import { withAuthParams } from '@/lib/api-helpers'
-import { getContextSnapshotForRun } from '@/lib/pr/state'
+import { proxyToPrAgent } from '@/lib/pr-agent-client'
 
 export const dynamic = 'force-dynamic'
 
-export const GET = withAuthParams<{ runId: string }>(async (_request, { params }) => {
+/** 转发到 pr-agent(PR 逻辑 owner);本仓只保留同源入口 + admin 会话鉴权。见 lib/pr-agent-client.ts。 */
+export const GET = withAuthParams<{ runId: string }>(async (request, { params }) => {
   const { runId } = await params
-  if (!runId) return NextResponse.json({ error: 'runId is required' }, { status: 400 })
-
-  const snapshot = await getContextSnapshotForRun(runId)
-  if (!snapshot) return NextResponse.json({ error: 'Context snapshot not found' }, { status: 404 })
-
-  return NextResponse.json(snapshot)
+  return proxyToPrAgent(request, `/api/pr/context/${encodeURIComponent(runId)}`)
 })
