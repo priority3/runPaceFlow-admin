@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Settings,
+  UserRound,
   Waypoints,
 } from 'lucide-react'
 
@@ -23,11 +24,12 @@ import { ActivitiesPanel } from './components/ActivitiesPanel'
 import { AnalyticsPanel } from './components/AnalyticsPanel'
 import { MonitorPanel } from './components/MonitorPanel'
 import { OverviewPanel } from './components/OverviewPanel'
+import { PersonaPanel } from './components/PersonaPanel'
 import { PrPanel } from './components/PrPanel'
 import { SchedulerPanel } from './components/SchedulerPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 
-type Tab = 'overview' | 'pr' | 'activities' | 'analytics' | 'scheduler' | 'monitor' | 'settings'
+type Tab = 'overview' | 'pr' | 'persona' | 'activities' | 'analytics' | 'scheduler' | 'monitor' | 'settings'
 
 export interface MonitorData {
   services: { name: string; status: string; responseTimeMs: number | null }[]
@@ -93,6 +95,7 @@ export function DashboardView({ settings }: DashboardViewProps) {
           {([
             { id: 'overview' as Tab, icon: BarChart3, label: '概览' },
             { id: 'pr' as Tab, icon: Brain, label: 'PR 伙伴' },
+            { id: 'persona' as Tab, icon: UserRound, label: '数字分身' },
             { id: 'activities' as Tab, icon: Footprints, label: '运动数据' },
             { id: 'analytics' as Tab, icon: Globe, label: '访问分析' },
             { id: 'scheduler' as Tab, icon: Clock, label: '任务调度' },
@@ -155,6 +158,7 @@ export function DashboardView({ settings }: DashboardViewProps) {
         )}
         {tab === 'overview' && <OverviewPanel stats={stats} syncStatus={syncStatus} monitor={monitor} loading={loadingStats} />}
         {tab === 'pr' && <PrPanel />}
+        {tab === 'persona' && <PersonaPanel onOpenPr={() => setTab('pr')} />}
         {tab === 'activities' && <ActivitiesPanel stats={stats} loading={loadingStats} />}
         {tab === 'analytics' && <AnalyticsPanel />}
         {tab === 'scheduler' && <SchedulerPanel />}
