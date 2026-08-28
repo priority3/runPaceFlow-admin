@@ -4,7 +4,7 @@ import { and, asc, eq, isNull, lte, or } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/activities-client'
 import { stravaEvents } from '@/lib/db/activities-schema'
-import { generatePrReviewsForActivities } from '@/lib/pr/review'
+import { requestPrReviewBatch } from '@/lib/pr-agent-client'
 import { performSync } from '@/lib/sync/service'
 import { generateId } from '@/lib/utils'
 
@@ -89,7 +89,7 @@ export async function drainStravaEvents(limit = 5) {
       if (event.objectType === 'activity' && (event.aspectType === 'create' || event.aspectType === 'update')) {
         const sync = await performSync({ source: 'strava', limit: 20 })
         if (!sync.success) throw new Error(sync.errorMessage ?? 'Strava sync failed')
-        const reviews = await generatePrReviewsForActivities(sync.activityIds)
+        const reviews = await requestPrReviewBatch(sync.activityIds)
         synced += sync.activitiesCount
         await db
           .update(stravaEvents)

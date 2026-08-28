@@ -1,39 +1,10 @@
-import { NextResponse } from 'next/server'
-
 import { withAuthParams } from '@/lib/api-helpers'
-import { updateMemory, type MemoryItemType } from '@/lib/pr/memory'
+import { proxyToPrAgent } from '@/lib/pr-agent-client'
 
 export const dynamic = 'force-dynamic'
 
+/** 转发到 pr-agent(PR 逻辑 owner);本仓只保留同源入口 + admin 会话鉴权。见 lib/pr-agent-client.ts。 */
 export const PATCH = withAuthParams<{ id: string }>(async (request, { params }) => {
   const { id } = await params
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
-
-  let body: Record<string, unknown>
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-  }
-
-  const memoryId = await updateMemory(
-    id,
-    {
-      type: typeof body.type === 'string' ? (body.type as MemoryItemType) : undefined,
-      content: typeof body.content === 'string' ? body.content : undefined,
-      confidence: typeof body.confidence === 'number' ? body.confidence : undefined,
-      status:
-        body.status === 'candidate' ||
-        body.status === 'active' ||
-        body.status === 'decayed' ||
-        body.status === 'archived'
-          ? body.status
-          : undefined,
-      reason: typeof body.reason === 'string' ? body.reason : '用户更新记忆。',
-    },
-    { actor: 'user', idempotencyKey: `update:${id}:${Date.now()}` },
-  )
-
-  if (!memoryId) return NextResponse.json({ error: 'Memory not found' }, { status: 404 })
-  return NextResponse.json({ memoryId })
+  return proxyToPrAgent(request, `/api/pr/memories/${encodeURIComponent(id)}`)
 })
