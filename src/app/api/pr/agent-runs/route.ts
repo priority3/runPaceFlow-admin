@@ -1,14 +1,11 @@
-import { NextResponse } from 'next/server'
-
 import { withAuth } from '@/lib/api-helpers'
-import { listAgentRuns } from '@/lib/pr/state'
+import { proxyToPrAgent } from '@/lib/pr-agent-client'
 
 export const dynamic = 'force-dynamic'
 
-export const GET = withAuth(async (request) => {
-  const url = new URL(request.url)
-  const limitParam = Number(url.searchParams.get('limit') ?? 30)
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 100) : 30
-
-  return NextResponse.json({ runs: await listAgentRuns(limit) })
-})
+/**
+ * 转发到 pr-agent。本仓不再自己实现 PR 逻辑 —— owner 在 pr-agent,这里只保留
+ * 「同源入口 + admin 会话鉴权」这一层:dashboard 的请求不必跨域,也不必在浏览器里
+ * 持有 pr-agent 的凭据(转发时由服务端补 PR_AGENT_TOKEN)。
+ */
+export const GET = withAuth(request => proxyToPrAgent(request, '/api/pr/agent-runs'))

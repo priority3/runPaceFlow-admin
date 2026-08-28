@@ -10,7 +10,7 @@
 import { NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/api-helpers'
-import { generatePrReviewsForActivities } from '@/lib/pr/review'
+import { requestPrReviewBatch } from '@/lib/pr-agent-client'
 import { getRuntimeSettings } from '@/lib/runtime-config'
 import { KeepAdapter } from '@/lib/sync/adapters/keep'
 import { performSync } from '@/lib/sync/service'
@@ -62,7 +62,7 @@ export const POST = withAuth(async (request) => {
   const result = await performSync({ source: 'keep', limit, fullSync })
   const reviews =
     result.success && result.activityIds.length > 0
-      ? await generatePrReviewsForActivities(result.activityIds)
+      ? await requestPrReviewBatch(result.activityIds)
       : { generated: 0, skipped: 0, failed: 0, notified: 0 }
 
   return NextResponse.json({

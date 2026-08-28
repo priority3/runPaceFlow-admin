@@ -1,21 +1,7 @@
-import { NextResponse } from 'next/server'
-
 import { withAuth } from '@/lib/api-helpers'
-import { listCurrentPrReviews } from '@/lib/pr/review'
+import { proxyToPrAgent } from '@/lib/pr-agent-client'
 
 export const dynamic = 'force-dynamic'
 
-export const GET = withAuth(async (request) => {
-  const url = new URL(request.url)
-  const limitParam = Number(url.searchParams.get('limit') ?? 20)
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 50) : 20
-  const kinds = url.searchParams.get('kind')?.split(',').filter(Boolean)
-  const reviews = kinds && kinds.length
-    ? await listCurrentPrReviews(limit, kinds)
-    : await listCurrentPrReviews(limit)
-
-  return NextResponse.json(
-    { reviews },
-    { headers: { 'Cache-Control': 'no-store' } },
-  )
-})
+/** 转发到 pr-agent(PR 逻辑 owner);本仓只保留同源入口 + 鉴权。见 lib/pr-agent-client.ts。 */
+export const GET = withAuth(request => proxyToPrAgent(request, '/api/pr/reviews'))

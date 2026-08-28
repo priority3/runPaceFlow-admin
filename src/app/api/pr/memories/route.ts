@@ -1,14 +1,7 @@
-import { NextResponse } from 'next/server'
-
 import { withAuth } from '@/lib/api-helpers'
-import { listMemories } from '@/lib/pr/memory'
+import { proxyToPrAgent } from '@/lib/pr-agent-client'
 
 export const dynamic = 'force-dynamic'
 
-export const GET = withAuth(async (request) => {
-  const url = new URL(request.url)
-  const statuses = url.searchParams.get('status')?.split(',').filter(Boolean) ?? ['candidate', 'active']
-  const memories = await listMemories(statuses, 100)
-
-  return NextResponse.json({ memories })
-})
+/** 转发到 pr-agent(PR 逻辑 owner);本仓只保留同源入口 + admin 会话鉴权。见 lib/pr-agent-client.ts。 */
+export const GET = withAuth(request => proxyToPrAgent(request, '/api/pr/memories'))

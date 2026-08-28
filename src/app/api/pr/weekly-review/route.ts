@@ -1,22 +1,7 @@
-import { NextResponse } from 'next/server'
-
 import { withAuth } from '@/lib/api-helpers'
-import { generateWeeklyReview } from '@/lib/pr/weekly'
+import { proxyToPrAgent } from '@/lib/pr-agent-client'
 
 export const dynamic = 'force-dynamic'
 
-export const POST = withAuth(async (request) => {
-  let body: Record<string, unknown> = {}
-  try {
-    body = await request.json()
-  } catch {
-    // 允许空 body
-  }
-
-  const result = await generateWeeklyReview({
-    force: body.force === true,
-    enqueueNotification: body.enqueueNotification !== false,
-  })
-
-  return NextResponse.json(result)
-})
+/** 转发到 pr-agent(PR 逻辑 owner);本仓只保留同源入口 + admin 会话鉴权。见 lib/pr-agent-client.ts。 */
+export const POST = withAuth(request => proxyToPrAgent(request, '/api/pr/weekly-review'))
