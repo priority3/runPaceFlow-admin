@@ -127,6 +127,10 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
   }, [])
 
   useEffect(() => {
+    // Reason: 挂载即取数是 effect 的正当用法(向外部系统拉状态)。规则报 error 是因为
+    // 静态分析看不穿 async 回调 —— 真正同步执行的只有 setLoading(true),而 loading
+    // 初值本就是 true,这一次并不会多触发一轮渲染。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPersona()
   }, [fetchPersona])
 
