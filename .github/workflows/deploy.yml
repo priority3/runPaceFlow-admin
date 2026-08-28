@@ -1,0 +1,88 @@
+name: deploy
+
+# main 有推送 → 自动部署到服务器。
+#
+# 机制:GitHub 托管 runner 把仓库内容 rsync 到服务器部署目录,再就地
+# `docker compose up -d --build`(compose 是 build: .,镜像在服务器上现场构建)。
+#
+# 为什么用 rsync 而不是在服务器上 git pull:服务器 /opt/runPaceFlow-admin 的 git index
+# 已损坏(fatal: index file smaller than expected),且那边也不该持有 GitHub 凭据。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # 支持手动重新部署(回滚后重放等)
+
+concurrency:
+  group: deploy-runpaceflow-admin
+  cancel-in-progress: false # 部署不可中断:半路取消会留下构建到一半的容器
+
+jobs:
+  # 先复用 checks:构建不过的东西不该上线。
+  checks:
+    uses: ./.github/workflows/checks.yml
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备 SSH
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # 末尾换行不能少:OpenSSH 私钥缺 trailing newline 会报 error in libcrypto
+          printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 同步源码
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        # --delete 清掉服务器上已从仓库删除的文件(拆分收尾删了 100+ 文件,不清会留僵尸)。
+        # 排除项是「服务器独有、仓库不该覆盖」的:
+        #   .env / docker-compose.yml —— 密钥与本地拓扑(外部卷、host 网络、phoenix 依赖)
+        #   data/ —— admin.db 与上传目录
+        #   .git —— 那边的 index 已损坏,别动它
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy -p $PORT -o BatchMode=yes" \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude 'docker-compose.yml' \
+            --exclude 'data' \
+            --exclude 'node_modules' \
+            --exclude '.next' \
+            ./ "$USER@$HOST:/opt/runPaceFlow-admin/"
+
+      - name: 重建并启动
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" \
+            'cd /opt/runPaceFlow-admin && docker compose up -d --build runpaceflow-admin 2>&1 | tail -20'
+
+      - name: 部署后探活
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          for i in $(seq 1 45); do
+            sleep 2
+            if curl -sf http://127.0.0.1:3030/api/health > /dev/null; then
+              echo "health OK"
+              exit 0
+            fi
+          done
+          echo "90s 内未就绪,最后 30 行日志:"
+          docker logs --tail 30 runpaceflow-admin
+          exit 1
+          REMOTE

@@ -1,0 +1,32 @@
+name: checks
+
+# PR 与 main 推送都跑一遍类型检查 + lint + 构建。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: 类型检查
+        run: bun run type-check
+
+      # 不加 --max-warnings=0:仓库现存若干 warning,先卡住 error 这条线,
+      # warning 清零可以后续单独收。
+      - name: Lint
+        run: bun run lint
+
+      # next build 会做本仓 tsc 覆盖不到的检查 —— 比如 src 之外的文件引用了已删模块
+      # (拆分收尾时 scripts/eval 就是被它抓出来的),以及路由签名校验。
+      - name: 构建
+        run: bun run build
