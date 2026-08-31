@@ -1,115 +1,31 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Frown, Meh, PartyPopper, RefreshCw, Smile, Sparkles } from 'lucide-react'
+import { RefreshCw, Sparkles } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
+import { PersonaCompanion, type CompanionMood } from './PersonaCompanion'
+import { PersonaHistory } from './PersonaHistory'
+import {
+  MODEL_FILES,
+  TAG_SLOTS,
+  TAG_TYPE_CLASS,
+  TAG_TYPE_LABEL,
+  buildChips,
+  raceGoalName,
+  type PersonaLive,
+  type PersonaPayload,
+  type PersonaTag,
+} from './persona-shared'
+import { CollapsibleSection } from './shared'
+
 /**
  * 数字分身面板:three.js + VRM 渲染用户分身,周围浮动「已生效记忆」tag 气泡,
- * PR 小跟班以 2D 徽章形态陪同(P5 再建模)。
- * 数据源:GET /api/persona(读 pr-agent 投影进共享库的 persona_state,本面板零业务判断)。
+ * PR 小跟班以 2D 精灵陪同。类型契约与展示 helper 在 persona-shared.ts。
+ * 数据源:/api/persona*(转发 pr-agent;本面板零业务判断)。
  * 设计:pr-agent/claudedocs/persona-avatar-design.md
  */
-
-interface PersonaTrait {
-  key: string
-  value: unknown
-  confidence: number
-  source: { kind: string; refId?: string }
-}
-interface PersonaTag {
-  id: string
-  type: string
-  label: string
-  content: string
-  confidence: number
-}
-interface PersonaPayload {
-  traits: PersonaTrait[]
-  renderManifest: {
-    user: { model: string; scale: number; expression: 'neutral' | 'happy' | 'tired'; props: string[] }
-    companion: { sprite: 'happy' | 'worried' | 'cheering' | 'neutral'; bubble: string | null }
-    tags: PersonaTag[]
-  }
-  updatedAt: string
-}
-/** 实时状态(P3,pr-agent 已做词表映射;enabled=false 表示上游未配置,整条隐藏)。 */
-interface PersonaLive {
-  enabled: boolean
-  online: boolean
-  doing: string | null
-  app: string | null
-  listening: string | null
-}
-
-/** 模型变体 → 静态资源;变体文件缺失时 loadVrm 内回落 base。 */
-const MODEL_FILES: Record<string, string> = {
-  base: '/persona/avatar-c.vrm',
-  'body-slim': '/persona/avatar-c-slim.vrm',
-  'body-strong': '/persona/avatar-c-strong.vrm',
-}
-
-const TAG_TYPE_CLASS: Record<string, string> = {
-  injury: 'border-amber-300 bg-amber-50 text-amber-800',
-  correction: 'border-rose-300 bg-rose-50 text-rose-800',
-  goal: 'border-sky-300 bg-sky-50 text-sky-800',
-  habit: 'border-emerald-300 bg-emerald-50 text-emerald-800',
-  risk_pattern: 'border-emerald-300 bg-emerald-50 text-emerald-800',
-  preference: 'border-violet-300 bg-violet-50 text-violet-800',
-  relationship_note: 'border-violet-300 bg-violet-50 text-violet-800',
-}
-const TAG_TYPE_LABEL: Record<string, string> = {
-  injury: '伤病',
-  correction: '纠正',
-  goal: '目标',
-  habit: '习惯',
-  risk_pattern: '风险',
-  preference: '偏好',
-  relationship_note: '关系',
-}
-
-/** 气泡槽位:左右交替、错落分布,最多 10 个(与投影端 tags 上限一致)。 */
-const TAG_SLOTS: Array<React.CSSProperties> = [
-  { top: '6%', left: '2%' },
-  { top: '12%', right: '2%' },
-  { top: '28%', left: '1%' },
-  { top: '34%', right: '1%' },
-  { top: '50%', left: '2%' },
-  { top: '56%', right: '2%' },
-  { top: '70%', left: '4%' },
-  { top: '74%', right: '4%' },
-  { top: '86%', left: '8%' },
-  { top: '88%', right: '8%' },
-]
-
-const COMPANION_ICON = { happy: Smile, worried: Frown, cheering: PartyPopper, neutral: Meh } as const
-
-function traitValue(traits: PersonaTrait[], key: string): unknown {
-  return traits.find(t => t.key === key)?.value
-}
-
-/** 第一条赛事目标名(号码布道具的文案);无目标返回 null。 */
-function raceGoalName(traits: PersonaTrait[]): string | null {
-  const goal = traits.find(t => t.key.startsWith('goal.race.'))?.value as { name?: string } | undefined
-  return goal?.name ?? null
-}
-
-/** 底部身体档案 chips:只显示已有的特征,缺省不占位。 */
-function buildChips(traits: PersonaTrait[]): string[] {
-  const chips: string[] = []
-  const height = Number(traitValue(traits, 'body.height_cm'))
-  if (Number.isFinite(height) && height > 0) chips.push(`身高 ${height}cm`)
-  const weight = Number(traitValue(traits, 'body.weight_kg'))
-  if (Number.isFinite(weight) && weight > 0) chips.push(`体重 ${weight}kg`)
-  const build = String(traitValue(traits, 'body.build') ?? '')
-  if (build) chips.push(`体型 ${{ slim: '偏瘦', standard: '标准', strong: '健壮' }[build] ?? build}`)
-  const recovery = String(traitValue(traits, 'state.recovery') ?? '')
-  if (recovery) chips.push(`恢复 ${{ good: '良好', okay: '一般', poor: '偏差' }[recovery] ?? recovery}`)
-  const load = String(traitValue(traits, 'state.training_load') ?? '')
-  if (load) chips.push(`训练 ${{ idle: '休整中', recovering: '恢复中', steady: '稳定', high: '高负荷' }[load] ?? load}`)
-  return chips
-}
 
 export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
   const [data, setData] = useState<PersonaPayload | null>(null)
@@ -345,7 +261,7 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
   }, [data])
 
   const manifest = data?.renderManifest
-  const CompanionIcon = COMPANION_ICON[manifest?.companion.sprite ?? 'neutral']
+  const companionMood: CompanionMood = manifest?.companion.sprite ?? 'neutral'
   const chips = data ? buildChips(data.traits) : []
 
   return (
@@ -448,11 +364,8 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
                   {manifest.companion.bubble}
                 </div>
               )}
-              <div
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-100 text-violet-700 shadow-sm"
-                title="PR 小跟班"
-              >
-                <CompanionIcon className="h-6 w-6" />
+              <div className="shrink-0" title="PR 小跟班">
+                <PersonaCompanion mood={companionMood} />
               </div>
             </div>
           )}
@@ -498,6 +411,10 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
           )}
         </div>
       </div>
+
+      <CollapsibleSection title="成长回放 · 分身特征变更史" defaultOpen={false}>
+        <PersonaHistory />
+      </CollapsibleSection>
     </div>
   )
 }
