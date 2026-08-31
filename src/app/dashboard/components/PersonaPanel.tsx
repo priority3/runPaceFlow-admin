@@ -34,6 +34,14 @@ interface PersonaPayload {
   }
   updatedAt: string
 }
+/** 实时状态(P3,pr-agent 已做词表映射;enabled=false 表示上游未配置,整条隐藏)。 */
+interface PersonaLive {
+  enabled: boolean
+  online: boolean
+  doing: string | null
+  app: string | null
+  listening: string | null
+}
 
 /** 模型变体 → 静态资源;变体文件缺失时 loadVrm 内回落 base。 */
 const MODEL_FILES: Record<string, string> = {
@@ -81,6 +89,12 @@ function traitValue(traits: PersonaTrait[], key: string): unknown {
   return traits.find(t => t.key === key)?.value
 }
 
+/** 第一条赛事目标名(号码布道具的文案);无目标返回 null。 */
+function raceGoalName(traits: PersonaTrait[]): string | null {
+  const goal = traits.find(t => t.key.startsWith('goal.race.'))?.value as { name?: string } | undefined
+  return goal?.name ?? null
+}
+
 /** 底部身体档案 chips:只显示已有的特征,缺省不占位。 */
 function buildChips(traits: PersonaTrait[]): string[] {
   const chips: string[] = []
@@ -104,6 +118,7 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
   const [selected, setSelected] = useState<PersonaTag | null>(null)
   const [modelStatus, setModelStatus] = useState('模型加载中…')
   const [reprojecting, setReprojecting] = useState(false)
+  const [live, setLive] = useState<PersonaLive | null>(null)
 
   const mountRef = useRef<HTMLDivElement>(null)
   // three 对象经动态 import 获得,类型在卸载/应用回调间穿梭,统一收进一个 ref 包。
@@ -147,6 +162,18 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPersona()
   }, [fetchPersona])
+
+  // 实时状态(P3):60s 轮询(pr-agent 侧还有 30s 缓存,再快没有信息增量);失败静默,状态条消失即可。
+  useEffect(() => {
+    const pull = () =>
+      fetch('/api/persona/live', { cache: 'no-store' })
+        .then(res => res.json())
+        .then(json => setLive(json as PersonaLive))
+        .catch(() => setLive(null))
+    void pull()
+    const interval = setInterval(pull, 60_000)
+    return () => clearInterval(interval)
+  }, [])
 
   // three.js 场景:挂载时初始化一次;persona 数据到达/变化时经 applyManifest 应用外观。
   useEffect(() => {
@@ -267,9 +294,17 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
         const t = clock.elapsedTime
         if (vrm) {
           vrm.update(dt)
-          // 待机呼吸 + 周期眨眼(P2 换 VRMA 动画)。
+          // 程序化待机(P2):呼吸 + 重心慢摆 + 头部微动 + 周期眨眼。
+          // 三条曲线频率互质(1.6/0.9/0.6),叠加后周期很长,看起来不像循环动画。
           const chest = vrm.humanoid?.getNormalizedBoneNode('chest')
           if (chest) chest.rotation.x = Math.sin(t * 1.6) * 0.015
+          const spine = vrm.humanoid?.getNormalizedBoneNode('spine')
+          if (spine) spine.rotation.z = Math.sin(t * 0.9) * 0.012
+          const head = vrm.humanoid?.getNormalizedBoneNode('head')
+          if (head) {
+            head.rotation.y = Math.sin(t * 0.6) * 0.05
+            head.rotation.z = Math.sin(t * 0.45 + 1) * 0.02
+          }
           try {
             vrm.expressionManager?.setValue('blink', Math.max(0, 1 - Math.abs((t % 4.4) - 0.12) * 18))
           } catch {
@@ -366,6 +401,27 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
           {modelStatus && (
             <div className="text-muted-foreground absolute inset-0 flex items-center justify-center text-sm">
               {modelStatus}
+            </div>
+          )}
+
+          {live?.enabled && live.online && live.doing && (
+            <div
+              className="bg-background/95 text-muted-foreground absolute top-3 left-3 z-10 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm"
+              title={live.app ?? undefined}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+              正在:{live.doing}
+              {live.listening ? ` · ${live.listening}` : ''}
+            </div>
+          )}
+
+          {manifest?.user.props.includes('race-bib') && (
+            <div
+              className="bg-background/95 absolute top-14 left-[26%] rotate-[-3deg] rounded-md border px-3 py-1.5 text-center shadow-sm"
+              title="有进行中的赛事目标"
+            >
+              <p className="text-[10px] tracking-widest text-muted-foreground">RACE</p>
+              <p className="text-xs font-medium">{raceGoalName(data?.traits ?? []) ?? '备赛中'}</p>
             </div>
           )}
 
