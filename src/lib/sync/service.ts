@@ -7,6 +7,7 @@ import { generateId } from '@/lib/utils'
 
 import type { SyncAdapter } from './adapters/base'
 import { KeepAdapter } from './adapters/keep'
+import { mirrorActivitiesToMainSite } from './mirror'
 import { NikeAdapter } from './adapters/nike'
 import { StravaAdapter } from './adapters/strava'
 import { syncActivities } from './processor'
@@ -200,6 +201,12 @@ export async function performSync(options: SyncOptions): Promise<SyncResult> {
 
     // 清理赛事匹配器资源
     await cleanupRaceMatcher()
+
+    // 活动镜像到主站库(fire-and-forget):shared.db 已落库,镜像慢/挂都不该拖累
+    // 同步结果;新活动为 0 也要跑——自愈式游标会顺手补齐历史缺口。见 mirror.ts。
+    void mirrorActivitiesToMainSite().catch(error =>
+      console.warn('[sync] 活动镜像调度失败:', (error as Error).message),
+    )
 
     return {
       success: true,
