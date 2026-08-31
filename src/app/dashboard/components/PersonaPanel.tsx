@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Frown, Meh, PartyPopper, RefreshCw, Smile } from 'lucide-react'
+import { Frown, Meh, PartyPopper, RefreshCw, Smile, Sparkles } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -103,11 +103,12 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<PersonaTag | null>(null)
   const [modelStatus, setModelStatus] = useState('模型加载中…')
+  const [reprojecting, setReprojecting] = useState(false)
 
   const mountRef = useRef<HTMLDivElement>(null)
   // three 对象经动态 import 获得,类型在卸载/应用回调间穿梭,统一收进一个 ref 包。
   const sceneRef = useRef<{
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     vrm: any
     applyManifest: (user: PersonaPayload['renderManifest']['user']) => void
     dispose: () => void
@@ -125,6 +126,19 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
     }
     setLoading(false)
   }, [])
+
+  // 手动重投影:经本仓 /api/persona/reproject 转发 pr-agent,完成后刷新展示。
+  const reproject = useCallback(async () => {
+    setReprojecting(true)
+    try {
+      const res = await fetch('/api/persona/reproject', { method: 'POST' })
+      if (!res.ok) throw new Error(`重投影失败(${res.status})`)
+      await fetchPersona()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '重投影失败')
+    }
+    setReprojecting(false)
+  }, [fetchPersona])
 
   useEffect(() => {
     // Reason: 挂载即取数是 effect 的正当用法(向外部系统拉状态)。规则报 error 是因为
@@ -177,7 +191,7 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
       disc.rotation.x = -Math.PI / 2
       scene.add(disc)
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       let vrm: any = null
 
       const setBone = (name: string, z: number) => {
@@ -309,15 +323,27 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
             {data ? ` · 更新于 ${new Date(data.updatedAt).toLocaleString('zh-CN')}` : ''}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={fetchPersona}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-          刷新
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={reproject}
+            disabled={reprojecting}
+            className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50 transition-colors"
+            title="让 pr-agent 立即重算一次投影(跳过输入指纹短路)"
+          >
+            <Sparkles className={cn('h-4 w-4', reprojecting && 'animate-pulse')} />
+            {reprojecting ? '投影中…' : '重投影'}
+          </button>
+          <button
+            type="button"
+            onClick={fetchPersona}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            刷新
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -328,8 +354,8 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
 
       {!loading && !error && !data && (
         <div className="bg-card text-muted-foreground rounded-lg border p-8 text-center text-sm shadow-sm">
-          还没有分身投影。pr-agent 升级到含 persona 的版本并完成一次投影后,这里就会出现你的数字分身;
-          也可对 pr-agent 调用 <code className="bg-muted rounded px-1">POST /api/pr/persona/reproject</code> 手动生成。
+          还没有分身投影。点右上「重投影」让 pr-agent 立即生成一份;若持续为空,
+          检查本仓的 <code className="bg-muted rounded px-1">PR_AGENT_URL / PR_AGENT_TOKEN</code> 是否已配置(未接通时 PR 面板同样不可用)。
         </div>
       )}
 
