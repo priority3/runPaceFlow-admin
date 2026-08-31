@@ -1,32 +1,13 @@
-import { NextResponse } from 'next/server'
-
 import { withAuth } from '@/lib/api-helpers'
-import { getActivitiesClient } from '@/lib/db/activities-client'
+import { proxyToPrAgent } from '@/lib/pr-agent-client'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * 数字分身投影只读接口(「数字分身」面板数据源)。
+ * 数字分身投影(「数字分身」面板数据源)→ 转发 pr-agent(PR 逻辑 owner)。
  *
- * 刻意用 raw select 而不把 persona_state 加进本仓 drizzle schema:
- * persona 的 DDL/投影逻辑/解析规则 owner 全在 pr-agent(共库部署下写同一个 shared.db),
- * admin 只消费最终 JSON,连表结构都不感知——将来面板整体切 pr-agent API 时本页零迁移。
- * 设计:pr-agent/claudedocs/persona-avatar-design.md
+ * 曾是全仓最后一处直读共库的 PR 数据路径(raw select persona_state)——当时留的
+ * 后门就是「将来面板整体切 pr-agent API 时零迁移」;lib/pr 副本删除后统一走代理,
+ * 顺带获得 pr-agent 端「无投影时现算一份」的行为,且不再依赖共库卷。
  */
-export const GET = withAuth(async () => {
-  const client = await getActivitiesClient()
-  try {
-    const result = await client.execute(
-      "SELECT payload_json, projection_version FROM persona_state WHERE id = 'singleton' LIMIT 1",
-    )
-    const row = result.rows[0]
-    if (!row) return NextResponse.json({ persona: null })
-    return NextResponse.json({
-      persona: JSON.parse(String(row.payload_json)) as unknown,
-      projectionVersion: Number(row.projection_version),
-    })
-  } catch {
-    // 表还没建(pr-agent 尚未升级/未跑过投影)→ 面板显示引导态而不是 500。
-    return NextResponse.json({ persona: null })
-  }
-})
+export const GET = withAuth(async request => proxyToPrAgent(request, '/api/pr/persona'))

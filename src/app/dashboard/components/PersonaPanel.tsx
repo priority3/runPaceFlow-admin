@@ -1,101 +1,31 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Frown, Meh, PartyPopper, RefreshCw, Smile } from 'lucide-react'
+import { RefreshCw, Sparkles } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
+import { PersonaCompanion, type CompanionMood } from './PersonaCompanion'
+import { PersonaHistory } from './PersonaHistory'
+import {
+  MODEL_FILES,
+  TAG_SLOTS,
+  TAG_TYPE_CLASS,
+  TAG_TYPE_LABEL,
+  buildChips,
+  raceGoalName,
+  type PersonaLive,
+  type PersonaPayload,
+  type PersonaTag,
+} from './persona-shared'
+import { CollapsibleSection } from './shared'
+
 /**
  * 数字分身面板:three.js + VRM 渲染用户分身,周围浮动「已生效记忆」tag 气泡,
- * PR 小跟班以 2D 徽章形态陪同(P5 再建模)。
- * 数据源:GET /api/persona(读 pr-agent 投影进共享库的 persona_state,本面板零业务判断)。
+ * PR 小跟班以 2D 精灵陪同。类型契约与展示 helper 在 persona-shared.ts。
+ * 数据源:/api/persona*(转发 pr-agent;本面板零业务判断)。
  * 设计:pr-agent/claudedocs/persona-avatar-design.md
  */
-
-interface PersonaTrait {
-  key: string
-  value: unknown
-  confidence: number
-  source: { kind: string; refId?: string }
-}
-interface PersonaTag {
-  id: string
-  type: string
-  label: string
-  content: string
-  confidence: number
-}
-interface PersonaPayload {
-  traits: PersonaTrait[]
-  renderManifest: {
-    user: { model: string; scale: number; expression: 'neutral' | 'happy' | 'tired'; props: string[] }
-    companion: { sprite: 'happy' | 'worried' | 'cheering' | 'neutral'; bubble: string | null }
-    tags: PersonaTag[]
-  }
-  updatedAt: string
-}
-
-/** 模型变体 → 静态资源;变体文件缺失时 loadVrm 内回落 base。 */
-const MODEL_FILES: Record<string, string> = {
-  base: '/persona/avatar-c.vrm',
-  'body-slim': '/persona/avatar-c-slim.vrm',
-  'body-strong': '/persona/avatar-c-strong.vrm',
-}
-
-const TAG_TYPE_CLASS: Record<string, string> = {
-  injury: 'border-amber-300 bg-amber-50 text-amber-800',
-  correction: 'border-rose-300 bg-rose-50 text-rose-800',
-  goal: 'border-sky-300 bg-sky-50 text-sky-800',
-  habit: 'border-emerald-300 bg-emerald-50 text-emerald-800',
-  risk_pattern: 'border-emerald-300 bg-emerald-50 text-emerald-800',
-  preference: 'border-violet-300 bg-violet-50 text-violet-800',
-  relationship_note: 'border-violet-300 bg-violet-50 text-violet-800',
-}
-const TAG_TYPE_LABEL: Record<string, string> = {
-  injury: '伤病',
-  correction: '纠正',
-  goal: '目标',
-  habit: '习惯',
-  risk_pattern: '风险',
-  preference: '偏好',
-  relationship_note: '关系',
-}
-
-/** 气泡槽位:左右交替、错落分布,最多 10 个(与投影端 tags 上限一致)。 */
-const TAG_SLOTS: Array<React.CSSProperties> = [
-  { top: '6%', left: '2%' },
-  { top: '12%', right: '2%' },
-  { top: '28%', left: '1%' },
-  { top: '34%', right: '1%' },
-  { top: '50%', left: '2%' },
-  { top: '56%', right: '2%' },
-  { top: '70%', left: '4%' },
-  { top: '74%', right: '4%' },
-  { top: '86%', left: '8%' },
-  { top: '88%', right: '8%' },
-]
-
-const COMPANION_ICON = { happy: Smile, worried: Frown, cheering: PartyPopper, neutral: Meh } as const
-
-function traitValue(traits: PersonaTrait[], key: string): unknown {
-  return traits.find(t => t.key === key)?.value
-}
-
-/** 底部身体档案 chips:只显示已有的特征,缺省不占位。 */
-function buildChips(traits: PersonaTrait[]): string[] {
-  const chips: string[] = []
-  const height = Number(traitValue(traits, 'body.height_cm'))
-  if (Number.isFinite(height) && height > 0) chips.push(`身高 ${height}cm`)
-  const weight = Number(traitValue(traits, 'body.weight_kg'))
-  if (Number.isFinite(weight) && weight > 0) chips.push(`体重 ${weight}kg`)
-  const build = String(traitValue(traits, 'body.build') ?? '')
-  if (build) chips.push(`体型 ${{ slim: '偏瘦', standard: '标准', strong: '健壮' }[build] ?? build}`)
-  const recovery = String(traitValue(traits, 'state.recovery') ?? '')
-  if (recovery) chips.push(`恢复 ${{ good: '良好', okay: '一般', poor: '偏差' }[recovery] ?? recovery}`)
-  const load = String(traitValue(traits, 'state.training_load') ?? '')
-  if (load) chips.push(`训练 ${{ idle: '休整中', recovering: '恢复中', steady: '稳定', high: '高负荷' }[load] ?? load}`)
-  return chips
-}
 
 export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
   const [data, setData] = useState<PersonaPayload | null>(null)
@@ -103,11 +33,13 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<PersonaTag | null>(null)
   const [modelStatus, setModelStatus] = useState('模型加载中…')
+  const [reprojecting, setReprojecting] = useState(false)
+  const [live, setLive] = useState<PersonaLive | null>(null)
 
   const mountRef = useRef<HTMLDivElement>(null)
   // three 对象经动态 import 获得,类型在卸载/应用回调间穿梭,统一收进一个 ref 包。
   const sceneRef = useRef<{
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     vrm: any
     applyManifest: (user: PersonaPayload['renderManifest']['user']) => void
     dispose: () => void
@@ -126,6 +58,19 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
     setLoading(false)
   }, [])
 
+  // 手动重投影:经本仓 /api/persona/reproject 转发 pr-agent,完成后刷新展示。
+  const reproject = useCallback(async () => {
+    setReprojecting(true)
+    try {
+      const res = await fetch('/api/persona/reproject', { method: 'POST' })
+      if (!res.ok) throw new Error(`重投影失败(${res.status})`)
+      await fetchPersona()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '重投影失败')
+    }
+    setReprojecting(false)
+  }, [fetchPersona])
+
   useEffect(() => {
     // Reason: 挂载即取数是 effect 的正当用法(向外部系统拉状态)。规则报 error 是因为
     // 静态分析看不穿 async 回调 —— 真正同步执行的只有 setLoading(true),而 loading
@@ -133,6 +78,18 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPersona()
   }, [fetchPersona])
+
+  // 实时状态(P3):60s 轮询(pr-agent 侧还有 30s 缓存,再快没有信息增量);失败静默,状态条消失即可。
+  useEffect(() => {
+    const pull = () =>
+      fetch('/api/persona/live', { cache: 'no-store' })
+        .then(res => res.json())
+        .then(json => setLive(json as PersonaLive))
+        .catch(() => setLive(null))
+    void pull()
+    const interval = setInterval(pull, 60_000)
+    return () => clearInterval(interval)
+  }, [])
 
   // three.js 场景:挂载时初始化一次;persona 数据到达/变化时经 applyManifest 应用外观。
   useEffect(() => {
@@ -177,7 +134,7 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
       disc.rotation.x = -Math.PI / 2
       scene.add(disc)
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       let vrm: any = null
 
       const setBone = (name: string, z: number) => {
@@ -253,9 +210,17 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
         const t = clock.elapsedTime
         if (vrm) {
           vrm.update(dt)
-          // 待机呼吸 + 周期眨眼(P2 换 VRMA 动画)。
+          // 程序化待机(P2):呼吸 + 重心慢摆 + 头部微动 + 周期眨眼。
+          // 三条曲线频率互质(1.6/0.9/0.6),叠加后周期很长,看起来不像循环动画。
           const chest = vrm.humanoid?.getNormalizedBoneNode('chest')
           if (chest) chest.rotation.x = Math.sin(t * 1.6) * 0.015
+          const spine = vrm.humanoid?.getNormalizedBoneNode('spine')
+          if (spine) spine.rotation.z = Math.sin(t * 0.9) * 0.012
+          const head = vrm.humanoid?.getNormalizedBoneNode('head')
+          if (head) {
+            head.rotation.y = Math.sin(t * 0.6) * 0.05
+            head.rotation.z = Math.sin(t * 0.45 + 1) * 0.02
+          }
           try {
             vrm.expressionManager?.setValue('blink', Math.max(0, 1 - Math.abs((t % 4.4) - 0.12) * 18))
           } catch {
@@ -296,7 +261,7 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
   }, [data])
 
   const manifest = data?.renderManifest
-  const CompanionIcon = COMPANION_ICON[manifest?.companion.sprite ?? 'neutral']
+  const companionMood: CompanionMood = manifest?.companion.sprite ?? 'neutral'
   const chips = data ? buildChips(data.traits) : []
 
   return (
@@ -309,15 +274,27 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
             {data ? ` · 更新于 ${new Date(data.updatedAt).toLocaleString('zh-CN')}` : ''}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={fetchPersona}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-          刷新
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={reproject}
+            disabled={reprojecting}
+            className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50 transition-colors"
+            title="让 pr-agent 立即重算一次投影(跳过输入指纹短路)"
+          >
+            <Sparkles className={cn('h-4 w-4', reprojecting && 'animate-pulse')} />
+            {reprojecting ? '投影中…' : '重投影'}
+          </button>
+          <button
+            type="button"
+            onClick={fetchPersona}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            刷新
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -328,8 +305,8 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
 
       {!loading && !error && !data && (
         <div className="bg-card text-muted-foreground rounded-lg border p-8 text-center text-sm shadow-sm">
-          还没有分身投影。pr-agent 升级到含 persona 的版本并完成一次投影后,这里就会出现你的数字分身;
-          也可对 pr-agent 调用 <code className="bg-muted rounded px-1">POST /api/pr/persona/reproject</code> 手动生成。
+          还没有分身投影。点右上「重投影」让 pr-agent 立即生成一份;若持续为空,
+          检查本仓的 <code className="bg-muted rounded px-1">PR_AGENT_URL / PR_AGENT_TOKEN</code> 是否已配置(未接通时 PR 面板同样不可用)。
         </div>
       )}
 
@@ -340,6 +317,27 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
           {modelStatus && (
             <div className="text-muted-foreground absolute inset-0 flex items-center justify-center text-sm">
               {modelStatus}
+            </div>
+          )}
+
+          {live?.enabled && live.online && live.doing && (
+            <div
+              className="bg-background/95 text-muted-foreground absolute top-3 left-3 z-10 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm"
+              title={live.app ?? undefined}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+              正在:{live.doing}
+              {live.listening ? ` · ${live.listening}` : ''}
+            </div>
+          )}
+
+          {manifest?.user.props.includes('race-bib') && (
+            <div
+              className="bg-background/95 absolute top-14 left-[26%] rotate-[-3deg] rounded-md border px-3 py-1.5 text-center shadow-sm"
+              title="有进行中的赛事目标"
+            >
+              <p className="text-[10px] tracking-widest text-muted-foreground">RACE</p>
+              <p className="text-xs font-medium">{raceGoalName(data?.traits ?? []) ?? '备赛中'}</p>
             </div>
           )}
 
@@ -366,11 +364,8 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
                   {manifest.companion.bubble}
                 </div>
               )}
-              <div
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-100 text-violet-700 shadow-sm"
-                title="PR 小跟班"
-              >
-                <CompanionIcon className="h-6 w-6" />
+              <div className="shrink-0" title="PR 小跟班">
+                <PersonaCompanion mood={companionMood} />
               </div>
             </div>
           )}
@@ -416,6 +411,10 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
           )}
         </div>
       </div>
+
+      <CollapsibleSection title="成长回放 · 分身特征变更史" defaultOpen={false}>
+        <PersonaHistory />
+      </CollapsibleSection>
     </div>
   )
 }
