@@ -10,6 +10,7 @@ import cron from 'node-cron'
 import { generateInsightsForUncached } from './ai'
 import { requestPrReviewBatch } from './pr-agent-client'
 import { generateDailyReport, sendPushPlus } from './notify'
+import { mirrorAdminDb } from './db-mirror'
 import { cleanupOldData } from './retention'
 import { getRuntimeSetting } from './runtime-config'
 import { ensureDefaultJobs, listJobs, recordJobRun } from './scheduler-config'
@@ -208,6 +209,19 @@ export async function manualStravaEventDrain(): Promise<{ success: boolean; mess
   }
 }
 
+async function jobAdminDbMirror() {
+  const startTime = Date.now()
+  try {
+    const result = await mirrorAdminDb()
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    if (result.ran) {
+      await recordJobRun('admin_db_mirror', `success: ${result.tables} tables, ${result.rows} rows${result.backlog ? ' (backlog)' : ''} in ${elapsed}s`)
+    }
+  } catch (err) {
+    await recordJobRun('admin_db_mirror', `error: ${(err as Error).message}`)
+  }
+}
+
 // ─── Scheduler Init ─────────────────────────────────────────────────────────
 
 const JOB_HANDLERS: Record<string, () => Promise<void>> = {
@@ -216,6 +230,7 @@ const JOB_HANDLERS: Record<string, () => Promise<void>> = {
   insights: jobGenerateInsights,
   daily_report: jobDailyReport,
   retention_cleanup: jobRetentionCleanup,
+  admin_db_mirror: jobAdminDbMirror,
 }
 
 async function setupJobs() {

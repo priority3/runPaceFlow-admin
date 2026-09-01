@@ -31,6 +31,8 @@ const DEFAULT_JOBS: Array<{ id: string; name: string; cronExpression: string }> 
   // 记忆维护:每天 3:33 衰减长期无新证据的弱候选/陈旧习惯,配合 dedupeKey 清理历史重复。
   { id: 'memory_maintenance', name: 'PR 记忆维护(衰减/新鲜度)', cronExpression: '33 3 * * *' },
   { id: 'retention_cleanup', name: '数据保留清理', cronExpression: '0 3 * * 0' }, // Weekly on Sunday at 3am
+  // admin.db 通用镜像 → 远程 libsql(默认主站 Turso):配置/分析数据的异地活副本,半小时一轮。
+  { id: 'admin_db_mirror', name: 'admin 库异地镜像', cronExpression: '*/30 * * * *' },
 ]
 
 export async function ensureDefaultJobs() {
