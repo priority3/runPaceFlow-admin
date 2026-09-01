@@ -110,14 +110,16 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
 
       const scene = new THREE.Scene()
       const camera = new THREE.PerspectiveCamera(30, mount.clientWidth / mount.clientHeight, 0.1, 30)
-      camera.position.set(0, 1.25, 2.9)
+      // Reason: 2.9 距离下人物顶天立地(头脚贴容器边),气泡没有呼吸空间;拉远到 3.6
+      // 并把目标点抬到腰际,人物约占画面 70% 高,四周留白给 tag 气泡与道具。
+      camera.position.set(0, 1.3, 3.6)
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
       renderer.setSize(mount.clientWidth, mount.clientHeight)
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio))
       mount.appendChild(renderer.domElement)
 
       const controls = new OrbitControls(camera, renderer.domElement)
-      controls.target.set(0, 0.95, 0)
+      controls.target.set(0, 1.0, 0)
       controls.enableDamping = true
       controls.minDistance = 1.6
       controls.maxDistance = 4.5
@@ -311,7 +313,12 @@ export function PersonaPanel({ onOpenPr }: { onOpenPr?: () => void }) {
       )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="bg-card relative overflow-hidden rounded-lg border shadow-sm" style={{ height: 560 }}>
+        <div
+          className="bg-card relative overflow-hidden rounded-lg border shadow-sm"
+          // Reason: 固定 560px 在宽屏下比例失衡(横向巨宽纵向局促);跟随视口高度,
+          // 上限防超宽显示器上过高,下限保住小窗可用性。
+          style={{ height: 'clamp(480px, 70vh, 760px)' }}
+        >
           <div ref={mountRef} className="absolute inset-0" />
 
           {modelStatus && (
