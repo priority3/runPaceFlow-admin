@@ -23,6 +23,7 @@ import type { StoredSetting } from '@/lib/store'
 import { cn, maskValue } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 
+import { PrGatewayCard } from './PrGatewayCard'
 import { SetupDiagnostic } from './SetupDiagnostic'
 
 const CATEGORY_ICONS: Record<SettingCategory, React.ComponentType<{ className?: string }>> = {
@@ -103,6 +104,8 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
       </header>
 
       <SetupDiagnostic />
+
+      <PrGatewayCard />
 
       <div className="flex gap-2 overflow-x-auto pb-2">
         {CATEGORY_ORDER.map(cat => {
