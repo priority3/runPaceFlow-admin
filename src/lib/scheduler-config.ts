@@ -16,20 +16,16 @@ export interface SchedulerJob {
   updatedAt: string
 }
 
+// Reason: 只登记**本进程有 handler 的** job(JOB_HANDLERS)。PR 系任务(通知分发/周总结/
+// 老友日记/每日反思/记忆维护)随 3fe14ef 移交 pr-agent,它用自己的静态 DEFAULT_JOBS +
+// CRON_<ID> env 调度、完全不读 admin.db —— 这里再登记就会在面板上渲染成「已启用、可改
+// cron、保存成功」但 setupJobs 里 `if (!handler) continue` 直接跳过的假开关。
+// 手动触发这些 PR 任务仍可经 /api/cron(其 action 会转发 pr-agent)。
 const DEFAULT_JOBS: Array<{ id: string; name: string; cronExpression: string }> = [
   { id: 'sync', name: '运动数据同步', cronExpression: '0 * * * *' },
   { id: 'strava_event_drain', name: 'Strava Webhook 事件处理', cronExpression: '*/5 * * * *' },
   { id: 'insights', name: 'AI 分析生成', cronExpression: '5 * * * *' },
-  { id: 'notification_dispatch', name: 'PR 通知分发', cronExpression: '*/10 * * * *' },
-  { id: 'weekly_review', name: 'PR 周总结', cronExpression: '0 20 * * 0' },
-  // 老友日记:每周日 21:31(周总结之后),把本周脉络蒸馏成日记 + 候选记忆 → 刷新画像。
-  { id: 'friend_diary', name: 'PR 老友日记', cronExpression: '31 21 * * 0' },
-  // Event-driven is primary (fires on health upload); this is a late idempotent
-  // fallback that only generates if the day's reflection is still missing.
-  { id: 'pr_daily_review', name: 'PR 每日反思(兜底)', cronExpression: '0 12 * * *' },
   { id: 'daily_report', name: '每日训练报告', cronExpression: '0 21 * * *' },
-  // 记忆维护:每天 3:33 衰减长期无新证据的弱候选/陈旧习惯,配合 dedupeKey 清理历史重复。
-  { id: 'memory_maintenance', name: 'PR 记忆维护(衰减/新鲜度)', cronExpression: '33 3 * * *' },
   { id: 'retention_cleanup', name: '数据保留清理', cronExpression: '0 3 * * 0' }, // Weekly on Sunday at 3am
   // admin.db 通用镜像 → 远程 libsql(默认主站 Turso):配置/分析数据的异地活副本,半小时一轮。
   { id: 'admin_db_mirror', name: 'admin 库异地镜像', cronExpression: '*/30 * * * *' },
