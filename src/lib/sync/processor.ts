@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, gte, lte } from 'drizzle-orm'
 
 import { getDb } from '@/lib/db/activities-client'
 import { activities, splits } from '@/lib/db/activities-schema'
@@ -22,6 +22,44 @@ import { extractCoordinatesFromGPX, matchRaceForActivity } from './race-matcher'
  */
 
 /**
+ * 跨源重复判定的容差。
+ *
+ * Reason: 同一次运动常被两个 App 各记一份(手表→Keep + 手表→Strava),两边的
+ * source/sourceId 完全不同,(source, sourceId) 这把唯一键拦不住。库里已实测存在
+ * 这样的双记(例如 2026-06-20 那次 5.24km 骑行,Keep 与 Strava 各一条)。
+ * 判据用「开始时间接近 + 距离接近 + 同类型」:两个 App 的计时起点常差几十秒,
+ * GPS 算距也有零点几个百分点的出入,所以两边都要留容差。
+ */
+const CROSS_SOURCE_TIME_TOLERANCE_SEC = 300
+const CROSS_SOURCE_DISTANCE_TOLERANCE = 0.03 // 相对差 3%
+
+/**
+ * 找出「同一次运动、但来自另一个数据源」的已存在活动。
+ * 命中则说明这条是重复,应跳过入库(保留先入库的那条,避免动已被引用的 id)。
+ */
+async function findCrossSourceDuplicate(rawActivity: RawActivity) {
+  const db = await getDb()
+  const startSec = Math.floor(rawActivity.startTime.getTime() / 1000)
+  const lo = new Date((startSec - CROSS_SOURCE_TIME_TOLERANCE_SEC) * 1000)
+  const hi = new Date((startSec + CROSS_SOURCE_TIME_TOLERANCE_SEC) * 1000)
+
+  const nearby = await db
+    .select()
+    .from(activities)
+    .where(and(gte(activities.startTime, lo), lte(activities.startTime, hi)))
+
+  for (const row of nearby) {
+    if (row.source === rawActivity.source) continue // 同源由 (source,sourceId) 唯一键负责
+    if (row.type !== rawActivity.type) continue
+    const a = row.distance ?? 0
+    const b = rawActivity.distance ?? 0
+    if (a <= 0 || b <= 0) continue
+    if (Math.abs(a - b) / Math.max(a, b) <= CROSS_SOURCE_DISTANCE_TOLERANCE) return row
+  }
+  return null
+}
+
+/**
  * 同步单个活动到数据库
  * @param rawActivity 原始活动数据
  * @returns 活动 ID
@@ -40,6 +78,16 @@ export async function syncActivity(rawActivity: RawActivity): Promise<string> {
     if (existing.length > 0) {
       console.info(`Activity ${rawActivity.id} already exists, skipping...`)
       return existing[0].id
+    }
+
+    // 跨源判重:同一次运动被两个 App 各记一份时,只保留先入库的那条
+    const crossDup = await findCrossSourceDuplicate(rawActivity)
+    if (crossDup) {
+      console.info(
+        `[sync] 跨源重复,跳过 ${rawActivity.source}/${rawActivity.id} —— ` +
+          `已有 ${crossDup.source} 的同一次${rawActivity.type}(${(rawActivity.distance / 1000).toFixed(2)}km @ ${rawActivity.startTime.toISOString()})`,
+      )
+      return crossDup.id
     }
 
     // 解析 GPX 数据

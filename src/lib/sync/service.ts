@@ -129,18 +129,36 @@ export async function performSync(options: SyncOptions): Promise<SyncResult> {
 
     // Reason: 真增量同步 —— 查库内该 source 最新活动的 startTime 作为 after 游标,
     // 只拉游标之后的新活动。库空(首次)或 fullSync 时不传游标,退化为全量拉 limit 条。
+    //
+    // 游标按 (source, type) 分别算:一个源可能同时供多种运动(Keep 既有跑步又有骑行),
+    // 它们各自的最新时间不同。若只用 source 级的单一 max(startTime),较新的那类会把游标
+    // 推过较旧那类尚未入库的活动 —— 例如 keep 名下跑步停在 04-22、骑行有 09-01,
+    // 单一游标会变成 09-01,从此 04-22 之后的跑步永远拉不回来。afterByType 解决这个;
+    // after 仍保留,供尚未支持分类型游标的适配器(Strava)使用。
     let after: number | undefined
+    let afterByType: Record<string, number> | undefined
     if (!fullSync && !startDate) {
-      const latest = await db
-        .select({ startTime: activities.startTime })
+      const latestPerType = await db
+        .select({ type: activities.type, startTime: activities.startTime })
         .from(activities)
         .where(eq(activities.source, source))
         .orderBy(desc(activities.startTime))
-        .limit(1)
-      if (latest.length > 0 && latest[0].startTime) {
-        // +1 秒避免把最新那条自己又拉回来
-        after = Math.floor(latest[0].startTime.getTime() / 1000) + 1
-        console.info(`[sync] 增量游标 after=${after} (${latest[0].startTime.toISOString()})`)
+
+      const seen = new Map<string, number>()
+      for (const row of latestPerType) {
+        if (!row.startTime || !row.type) continue
+        // 已按 startTime 降序,每个 type 首次出现即为其最新
+        if (!seen.has(row.type)) seen.set(row.type, Math.floor(row.startTime.getTime() / 1000) + 1)
+      }
+
+      if (seen.size > 0) {
+        afterByType = Object.fromEntries(seen)
+        // +1 秒避免把最新那条自己又拉回来(seen 里已含 +1)
+        after = Math.min(...seen.values())
+        const desc0 = [...seen.entries()]
+          .map(([t, v]) => `${t}=${new Date(v * 1000).toISOString()}`)
+          .join(' ')
+        console.info(`[sync] 增量游标 ${desc0}`)
       } else {
         console.info(`[sync] 库内无 ${source} 活动,执行首次全量同步`)
       }
@@ -153,6 +171,7 @@ export async function performSync(options: SyncOptions): Promise<SyncResult> {
       endDate,
       limit,
       after,
+      afterByType,
       // 拉详情前按 sourceId 查重:库里已有就跳过,避免浪费详情/streams 请求
       shouldFetchDetail: async (sourceId: string) => {
         const existing = await db
