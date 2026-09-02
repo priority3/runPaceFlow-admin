@@ -8,7 +8,6 @@ import { generateId } from '@/lib/utils'
 import type { SyncAdapter } from './adapters/base'
 import { KeepAdapter } from './adapters/keep'
 import { mirrorActivitiesToMainSite } from './mirror'
-import { NikeAdapter } from './adapters/nike'
 import { StravaAdapter } from './adapters/strava'
 import { syncActivities } from './processor'
 import { cleanupRaceMatcher, initRaceMatcher } from './race-matcher'
@@ -18,7 +17,9 @@ import { cleanupRaceMatcher, initRaceMatcher } from './race-matcher'
  * 负责协调数据源的同步流程
  */
 
-export type SyncSource = 'nike' | 'strava' | 'garmin' | 'keep'
+// Reason: nike 适配器与 garmin stub 已删(前者零调用且库内无 nike 行,后者只 throw not-implemented);
+// 与 pr-agent 的 ingest/service.ts 保持一致的两值集合。
+export type SyncSource = 'strava' | 'keep'
 
 /**
  * 同步选项
@@ -61,22 +62,11 @@ export interface SyncResult {
 function createAdapter(
   source: SyncSource,
   profile: {
-    nikeAccessToken?: string | null
     stravaAccessToken?: string | null
-    garminSecretString?: string | null
   },
   settings: Record<string, string>,
 ): SyncAdapter {
   switch (source) {
-    case 'nike': {
-      // Reason: NIKE_ACCESS_TOKEN/NIKE_REFRESH_TOKEN 从未注册进设置表(幽灵键),
-      // 全仓也无 nike 源的同步调用方;仅保留 profile 里的历史 token 通路。
-      const token = profile.nikeAccessToken
-      if (!token) {
-        throw new Error('No token found for nike')
-      }
-      return new NikeAdapter(token)
-    }
     case 'strava': {
       const clientId = settings.STRAVA_CLIENT_ID
       const clientSecret = settings.STRAVA_CLIENT_SECRET
@@ -85,13 +75,6 @@ function createAdapter(
         throw new Error('No OAuth credentials found for strava')
       }
       return new StravaAdapter(clientId, clientSecret, refreshToken)
-    }
-    case 'garmin': {
-      const accessToken = profile.garminSecretString || process.env.GARMIN_SECRET_STRING
-      if (!accessToken) {
-        throw new Error('No secret string found for garmin')
-      }
-      throw new Error('Garmin adapter not implemented yet')
     }
     case 'keep': {
       const mobile = settings.KEEP_MOBILE
