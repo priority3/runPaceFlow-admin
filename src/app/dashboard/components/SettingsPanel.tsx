@@ -24,6 +24,7 @@ import { useToast } from '@/components/ui/toast'
 
 import { PrGatewayCard } from './PrGatewayCard'
 import { SetupDiagnostic } from './SetupDiagnostic'
+import { SyncSourceProbe } from './SyncSourceProbe'
 
 const CATEGORY_ICONS: Record<SettingCategory, React.ComponentType<{ className?: string }>> = {
   database: Database,
@@ -132,6 +133,8 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
       </div>
 
       <p className="text-muted-foreground text-sm">{activeMeta.description}</p>
+
+      {activeCategory === 'sync' && <SyncSourceProbe />}
 
       <form id="settings-form" action={saveAction} className="bg-card rounded-lg border shadow-sm overflow-hidden">
         {activeDefinitions.map(def => {
