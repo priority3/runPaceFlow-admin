@@ -26,11 +26,9 @@ import {
   SessionQualitySection,
   WeekComparisonSection,
 } from './AnalyticsCharts'
-import { ABTestConfigPanel } from './ABTestConfigPanel'
 import { AnalyticsSummary } from './AnalyticsSummary'
 import { ClickHeatmapPanel } from './ClickHeatmapPanel'
 import { ConversionGoalsPanel } from './ConversionGoalsPanel'
-import { ConversionPanel } from './ConversionPanel'
 import { ErrorTrackingPanel } from './ErrorTrackingPanel'
 import { FunnelSection } from './FunnelSection'
 import { JourneyPanel } from './JourneyPanel'
@@ -277,9 +275,7 @@ export function AnalyticsPanel() {
       <SessionQualitySection data={data} />
       <PerformanceSection data={data} />
       <PerformanceTrendSection data={performanceTrend} />
-      <ConversionPanel />
       <ConversionGoalsPanel />
-      <ABTestConfigPanel />
       <JourneyPanel />
       <ClickHeatmapPanel />
       <ErrorTrackingPanel />

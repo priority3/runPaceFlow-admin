@@ -30,17 +30,6 @@ export interface PerformanceTrend {
   sampleSize: number
 }
 
-export interface ABTestResult {
-  testName: string
-  variants: Array<{
-    name: string
-    visitors: number
-    conversions: number
-    conversionRate: number
-  }>
-  totalVisitors: number
-}
-
 // ─── Performance Stats ───────────────────────────────────────────────────────
 
 export async function getPerformanceStats(days = 7): Promise<PerformanceStats> {
@@ -122,51 +111,3 @@ export async function getPerformanceTrend(days = 14): Promise<PerformanceTrend[]
   }))
 }
 
-// ─── A/B Test Stats ──────────────────────────────────────────────────────────
-
-export async function getABTestStats(days = 30): Promise<ABTestResult[]> {
-  await ensureSchema()
-  const db = getDb()
-  const start = todayStart() - (days - 1) * 86400
-
-  const result = await db.execute({
-    sql: `SELECT ab_tests, visitor_id FROM page_views
-          WHERE created_at >= ? AND ab_tests IS NOT NULL`,
-    args: [start],
-  })
-
-  const testMap = new Map<string, Map<string, Set<string>>>()
-
-  for (const row of result.rows) {
-    try {
-      const abTests = JSON.parse(row.ab_tests as string) as Record<string, string>
-      const visitorId = row.visitor_id as string
-
-      for (const [testName, variant] of Object.entries(abTests)) {
-        if (!testMap.has(testName)) {
-          testMap.set(testName, new Map())
-        }
-        const variantMap = testMap.get(testName)!
-        if (!variantMap.has(variant)) {
-          variantMap.set(variant, new Set())
-        }
-        variantMap.get(variant)!.add(visitorId)
-      }
-    } catch {
-      // Skip malformed data
-    }
-  }
-
-  const results: ABTestResult[] = []
-  for (const [testName, variantMap] of testMap) {
-    let totalVisitors = 0
-    const variants = Array.from(variantMap.entries()).map(([name, visitors]) => {
-      totalVisitors += visitors.size
-      return { name, visitors: visitors.size, conversions: 0, conversionRate: 0 }
-    })
-
-    results.push({ testName, variants, totalVisitors })
-  }
-
-  return results
-}

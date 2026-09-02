@@ -30,14 +30,7 @@ export const DEFAULT_FUNNELS: Array<{ name: string; steps: FunnelStep[] }> = [
     name: '首页 → 活动详情',
     steps: [
       { path: '/', label: '首页' },
-      { path: '/activities', label: '活动列表' },
-    ],
-  },
-  {
-    name: '注册/登录流程',
-    steps: [
-      { path: '/', label: '首页' },
-      { path: '/login', label: '登录页' },
+      { path: '/activity', label: '活动详情' },
     ],
   },
 ]

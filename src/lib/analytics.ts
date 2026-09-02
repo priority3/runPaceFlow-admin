@@ -22,7 +22,6 @@ export type {
 export type {
   PerformanceStats,
   PerformanceTrend,
-  ABTestResult,
 } from './analytics-advanced'
 
 export {
@@ -45,7 +44,6 @@ export {
 export {
   getPerformanceStats,
   getPerformanceTrend,
-  getABTestStats,
 } from './analytics-advanced'
 
 // ─── Track Page View ─────────────────────────────────────────────────────────
