@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import {
+  AlertCircle,
   BarChart3,
   Bell,
   Brain,
+  CheckCircle2,
   Cloud,
+  Loader2,
   Play,
   RefreshCw,
   ToggleLeft,
@@ -38,8 +41,13 @@ const CRON_PRESETS: Array<{ label: string; value: string }> = [
 ]
 
 export function SchedulerPanel() {
-  const { success, error: toastError } = useToast()
+  const { success, error: toastError, info } = useToast()
   const [jobs, setJobs] = useState<SchedulerJob[]>([])
+  /** 正在执行的 action(null=空闲);同时用于禁用全部触发按钮,避免并发同步。 */
+  const [running, setRunning] = useState<string | null>(null)
+  // Reason: toast 在右下角贴底且会自动消失,而触发按钮在上半屏 —— 视线根本不在那儿,
+  // 于是「点了没反应」。结果必须落在按钮旁边、并且**不自动消失**,直到下次触发。
+  const [outcomes, setOutcomes] = useState<Record<string, { ok: boolean; text: string; at: number }>>({})
   const [loading, setLoading] = useState(true)
   const [editingJob, setEditingJob] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -119,25 +127,48 @@ export function SchedulerPanel() {
     setSaving(false)
   }
 
-  async function triggerJob(action: string) {
+  /**
+   * 手动触发一个任务。
+   *
+   * 这些 action 是**同步执行**的:Keep 同步要拉详情 + 让 pr-agent 逐条生成复盘,
+   * 实测能跑 40 秒以上。所以三件事都必要:① 点击即进 running 态并禁用按钮
+   * (否则界面毫无变化,看起来像没反应,还会被重复点触发并发同步);
+   * ② 立刻弹一个「已触发」提示,不等结果;③ 结束后刷新任务列表,让
+   * 「上次执行」时间与结果可见。
+   */
+  async function triggerJob(action: string, label: string) {
+    if (running) return
+    setRunning(action)
+    setOutcomes(prev => ({ ...prev, [action]: { ok: true, text: '执行中…', at: Date.now() } }))
+    info(`${label}:已触发,正在执行…`)
     try {
       const res = await fetch('/api/cron', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
+        // Reason: 反向代理常在 ~100s 掐断空闲连接;这里主动设 150s 并在超时时给出
+        // 「服务端仍在跑」的正确提示 —— 连接断开不会中止服务端已开始的任务。
+        signal: AbortSignal.timeout(150_000),
       })
-      const data = await res.json()
-      const message = data.message || (data.success ? '执行成功' : '执行失败')
-      // Reason: cron 接口的成功信号散落在 message 文本里（成功/Synced/Generated/sent），统一判定
-      const ok = data.success || /成功|Synced|Generated|sent/.test(message)
-      if (ok) {
-        success(`${action}: ${message}`)
-      } else {
-        toastError(`${action}: ${message}`)
-      }
+      // Reason: 后端统一返回 { success, message }(见 api/cron/route.ts:101),
+      // 直接用它;此前靠 /成功|Synced|Generated/ 猜关键词,message 措辞一变就误判。
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; message?: string; error?: string }
+      const text = data.error || data.message || (res.ok ? '执行成功' : `HTTP ${res.status}`)
+      const ok = res.ok && data.success !== false
+      setOutcomes(prev => ({ ...prev, [action]: { ok, text, at: Date.now() } }))
+      if (ok) success(`${label}:${text}`)
+      else toastError(`${label}:${text}`)
+      await fetchJobs()
     } catch (e) {
-      toastError(`${action}: 请求失败 (${e instanceof Error ? e.message : '网络错误'})`)
+      const timedOut = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')
+      const text = timedOut
+        ? '等待超时,但任务仍在服务端继续跑 —— 稍后点「刷新」看执行结果'
+        : `请求失败(${e instanceof Error ? e.message : '网络错误'})`
+      setOutcomes(prev => ({ ...prev, [action]: { ok: false, text, at: Date.now() } }))
+      if (timedOut) info(`${label}:${text}`)
+      else toastError(`${label}:${text}`)
     }
+    setRunning(null)
   }
 
   if (loading) return <LoadingState />
@@ -185,12 +216,42 @@ export function SchedulerPanel() {
               <p className="text-muted-foreground text-xs mb-3">{item.desc}</p>
               <button
                 type="button"
-                onClick={() => triggerJob(item.action)}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-8 items-center gap-2 rounded-md px-3 text-xs font-medium shadow-sm transition-colors"
+                onClick={() => triggerJob(item.action, item.label)}
+                disabled={running !== null}
+                className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-8 items-center gap-2 rounded-md px-3 text-xs font-medium shadow-sm transition-colors disabled:opacity-50"
               >
-                <Play className="h-3 w-3" />
-                立即执行
+                {running === item.action ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    执行中…
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-3 w-3" />
+                    立即执行
+                  </>
+                )}
               </button>
+              {outcomes[item.action] && (
+                <p
+                  className={`mt-2 flex items-start gap-1.5 text-xs ${
+                    running === item.action
+                      ? 'text-muted-foreground'
+                      : outcomes[item.action].ok
+                        ? 'text-emerald-700'
+                        : 'text-red-700'
+                  }`}
+                >
+                  {running === item.action ? (
+                    <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin" />
+                  ) : outcomes[item.action].ok ? (
+                    <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
+                  ) : (
+                    <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                  )}
+                  <span className="break-all">{outcomes[item.action].text}</span>
+                </p>
+              )}
             </div>
           ))}
         </div>

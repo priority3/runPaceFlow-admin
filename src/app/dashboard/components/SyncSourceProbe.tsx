@@ -10,8 +10,9 @@ import { AlertCircle, CheckCircle2, Loader2, PlugZap } from 'lucide-react'
  * 日志,要么等一天发现没数据。这里复用 /api/sync/keep 的 probe 模式(它本就是为
  * 「校验单位/轨迹是否完整」而写的干跑通路),把结果直接摊在配置页上。
  *
- * 注意:测的是**已保存**的配置(probe 从 getRuntimeSettings 读),所以改完输入框要先
- * 点「保存配置」再测,否则测的还是旧值。
+ * 交互刻意做成「测当前输入框的值」:点测试时从同一表单里读 KEEP_MOBILE/KEEP_PASSWORD
+ * 的**草稿值**随请求带上 —— 正确的顺序是「填 → 测通 → 再保存」,而不是把可能错的
+ * 凭据先写进库、错了还要改一遍。输入框为空时后端回落已保存的配置。
  */
 
 interface ProbeActivity {
@@ -49,10 +50,19 @@ export function SyncSourceProbe() {
     setError(null)
     setResult(null)
     try {
+      // Reason: 配置项输入框是非受控的(defaultValue + name),直接按 id 读当前草稿值;
+      // 读不到(比如切了分类没渲染)就不带,由后端回落已保存配置。
+      const readDraft = (key: string) =>
+        (document.getElementById(key) as HTMLInputElement | null)?.value?.trim() || undefined
       const res = await fetch('/api/sync/keep', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ probe: true, limit: 3 }),
+        body: JSON.stringify({
+          probe: true,
+          limit: 3,
+          mobile: readDraft('KEEP_MOBILE'),
+          password: readDraft('KEEP_PASSWORD'),
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
@@ -72,8 +82,8 @@ export function SyncSourceProbe() {
             同步源自检(Keep)
           </h3>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            用已保存的凭据真跑一次登录并拉最近 3 条活动 · 干跑不写库 ·
-            改完输入框请先「保存配置」再测
+            用<strong>下方输入框里的凭据</strong>真跑一次登录并拉最近 3 条活动 ·
+            干跑不写库、不必先保存 · 测通了再点右上「保存配置」
           </p>
         </div>
         <button
@@ -94,7 +104,7 @@ export function SyncSourceProbe() {
             {error}
           </p>
           <ul className="mt-1.5 ml-5 list-disc space-y-0.5 text-red-800">
-            <li>「未在设置里配置」→ 填 Keep 手机号与密码后先保存配置</li>
+            <li>「都要填」→ 下方 Keep 手机号与密码两栏都填上再测</li>
             <li>「登录失败」→ 手机号/密码有误,或 Keep 侧要求验证码(换个网络再试)</li>
             <li>其他错误 → 多为出网受限;这台机需经本地代理访问外网</li>
           </ul>
@@ -139,7 +149,7 @@ export function SyncSourceProbe() {
             </table>
           )}
           <p className="text-muted-foreground mt-1.5 text-xs">
-            字段与轨迹点看起来正常即可放心开同步;「轨迹点=无」多为跑步机等室内活动。
+            字段与轨迹点正常即可点右上「保存配置」落库;「轨迹点=无」多为跑步机等室内活动。
           </p>
         </div>
       )}
