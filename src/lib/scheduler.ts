@@ -216,6 +216,11 @@ async function jobAdminDbMirror() {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     if (result.ran) {
       await recordJobRun('admin_db_mirror', `success: ${result.tables} tables, ${result.rows} rows${result.backlog ? ' (backlog)' : ''} in ${elapsed}s`)
+    } else {
+      // Reason: ran:false 时原先什么都不记,而 last_run_at 是面板「上次执行」的唯一
+      // 数据源 —— 于是这个任务每 30 分钟都在跑、只是跳过,面板却永久显示「从未执行」,
+      // 看起来像 cron 没注册。与 daily_report 的 skipped 语义对齐。
+      await recordJobRun('admin_db_mirror', 'skipped: 未配置 ADMIN_MIRROR_DATABASE_URL')
     }
   } catch (err) {
     await recordJobRun('admin_db_mirror', `error: ${(err as Error).message}`)

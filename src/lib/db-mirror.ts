@@ -1,5 +1,5 @@
 /**
- * admin.db 通用镜像:把配置/分析库整库增量镜像到远程 libsql(默认主站 Turso)。
+ * admin.db 通用镜像:把配置/分析库整库增量镜像到**显式指定**的远程 libsql。
  *
  * 与 sync/mirror.ts(活动镜像)同属「本地真相源 + 异地活副本」策略,但 admin.db
  * 表多且会演进(配置/访问分析/审计/转化…),逐表手写镜像维护不起——这里做通用化:
@@ -10,8 +10,14 @@
  *   主键承载增量游标。镜像表只为灾难恢复,不服务查询,不复刻约束/索引
  * - 失败不抛错只落日志,下轮自愈;inFlight 防重入;单轮大表上限 5000 行,
  *   首次回填分轮吃完
- * - 目标可用 ADMIN_MIRROR_DATABASE_URL 显式指定;缺省复用主站库
- *   (settings.DATABASE_URL)。与源库同址时拒跑(防自镜像)
+ * - 目标**必须**由 ADMIN_MIRROR_DATABASE_URL 显式指定,不缺省复用主站库。
+ *   Reason: 曾回落到 settings.DATABASE_URL,而那个键的用途是「活动数据镜像的目标」
+ *   (见 sync/mirror.ts)。于是一填它去开活动镜像,admin.db 整库就被顺带 dump 到
+ *   同一个远端 —— 包括 app_settings 里**加密的 Keep 手机号与密码**(SKIP_TABLES
+ *   不排除它,那本是灾备的核心价值)。而防自镜像那道检查只比 CONFIG_DATABASE_URL,
+ *   拦不住这条路。两个用途共用一个键会让「镜像运动数据」静默变成「连凭据一起外发」,
+ *   所以此处不再回落:要镜像配置库,就显式配自己的目标。
+ *   (admin.db 另有 B2 冷备,见 pr-agent 仓 scripts/backup/backup-to-b2.sh)
  * - 已知取舍:大表(>阈值)中旧行的 UPDATE/DELETE 不会同步——本库大表均为
  *   append-only 事件流,可接受;若将来出现大且可变的表,给它配 FULL_COPY 白名单
  */
@@ -36,18 +42,17 @@ const INCREMENTAL_BATCH_LIMIT = 5000
 /** 单条 batch 语句组的行数。 */
 const INSERT_CHUNK = 200
 
-const SKIP_TABLES = /^(sqlite_|admin_mirror_|__drizzle|libsql_)/
+const SKIP_TABLES = /^(sqlite_|admin_mirror_|__drizzle|libsql_|_litestream)/
 
 let targetCache: { client: Client; signature: string } | undefined
 let inFlight = false
 
 async function getTargetClient(): Promise<{ client: Client; url: string } | null> {
   const settings = await getRuntimeSettings()
-  const url = settings.ADMIN_MIRROR_DATABASE_URL || settings.DATABASE_URL
+  // 只认专用键,绝不回落 DATABASE_URL(那是活动镜像的目标,见文件头注释)
+  const url = settings.ADMIN_MIRROR_DATABASE_URL
   if (!url) return null
-  const authToken =
-    (settings.ADMIN_MIRROR_DATABASE_URL ? settings.ADMIN_MIRROR_DATABASE_AUTH_TOKEN : settings.DATABASE_AUTH_TOKEN) ||
-    undefined
+  const authToken = settings.ADMIN_MIRROR_DATABASE_AUTH_TOKEN || undefined
   const signature = `${url}\n${authToken ?? ''}`
   if (!targetCache || targetCache.signature !== signature) {
     targetCache = { client: createClient({ url, authToken }), signature }
@@ -109,7 +114,7 @@ export async function mirrorAdminDb(): Promise<DbMirrorResult> {
   if (inFlight) return { ran: false, tables: 0, rows: 0, backlog: false }
   const resolved = await getTargetClient()
   if (!resolved) {
-    console.info('[db-mirror] 未配置镜像目标(ADMIN_MIRROR_DATABASE_URL / DATABASE_URL 均空),跳过')
+    console.info('[db-mirror] 未配置 ADMIN_MIRROR_DATABASE_URL,跳过配置库镜像')
     return { ran: false, tables: 0, rows: 0, backlog: false }
   }
 
