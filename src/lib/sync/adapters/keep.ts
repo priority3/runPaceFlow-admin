@@ -18,7 +18,31 @@ import type { RawActivity, SyncAdapter } from './base'
 const LOGIN_API = 'https://api.gotokeep.com/v1.1/users/login'
 const LIST_API = 'https://api.gotokeep.com/pd/v3/stats/detail'
 const LOG_API_BASE = 'https://api.gotokeep.com/pd/v3'
-const SPORT_TYPE = 'running'
+
+/**
+ * Keep 的接口按运动类型分区,列表与详情**各用一套标识**,必须成对给对:
+ *   列表:GET /pd/v3/stats/detail?type=<listType>
+ *   详情:GET /pd/v3/<logPath>/<id>          ← 类型在**路径**里,不是 query
+ * 拿骑行 id 去打 /runninglog 会返回 errorCode 404803「获取训练数据请求错误的接口」。
+ * id 尾缀同样编码了类型(_rn / _cy),用于只拿到 id 的场景(downloadGPX)回推。
+ *
+ * Reason: Keep 对**认不出的 type 值不报错**,而是静默退化成「全部运动」——
+ * 实测 riding / bike / biking / walking / all / 空串都返回同一份混合列表
+ * (stats.type 为 training)。所以这张表只能填实测确认过的值:猜错不会 4xx,
+ * 只会把别的运动悄悄混进来,污染入库类型。
+ * 已实测:running(_rn) / cycling(_cy) / hiking(_hk) 有效;后两者按需再加。
+ */
+const KEEP_SPORTS = [
+  { listType: 'running', logPath: 'runninglog', idSuffix: '_rn', type: 'running', label: '跑步' },
+  { listType: 'cycling', logPath: 'cyclinglog', idSuffix: '_cy', type: 'cycling', label: '骑行' },
+] as const
+
+type KeepSport = (typeof KEEP_SPORTS)[number]
+
+/** 只有 id 时按尾缀回推运动类型;认不出则当跑步(历史行为)。 */
+function sportFromId(id: string): KeepSport {
+  return KEEP_SPORTS.find(s => id.endsWith(s.idSuffix)) ?? KEEP_SPORTS[0]
+}
 const UA =
   'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:78.0) Gecko/20100101 Firefox/78.0'
 
@@ -82,12 +106,12 @@ export class KeepAdapter implements SyncAdapter {
     return this.authenticate()
   }
 
-  /** 分页拉取 running 日志 id(新→旧);增量时到游标更旧的页就停。 */
-  private async listRunIds(token: string, after?: number): Promise<string[]> {
+  /** 分页拉取某个运动的日志 id(新→旧);增量时到游标更旧的页就停。 */
+  private async listLogIds(token: string, sport: KeepSport, after?: number): Promise<string[]> {
     const ids: string[] = []
     let lastDate = 0
     for (let page = 0; page < MAX_LIST_PAGES; page++) {
-      const url = `${LIST_API}?dateUnit=all&type=${SPORT_TYPE}&lastDate=${lastDate}`
+      const url = `${LIST_API}?dateUnit=all&type=${sport.listType}&lastDate=${lastDate}`
       const res = await fetch(url, { headers: this.authHeaders(token) })
       if (!res.ok) break
       const json = (await res.json()) as {
@@ -112,33 +136,51 @@ export class KeepAdapter implements SyncAdapter {
     startDate?: Date
     endDate?: Date
     after?: number
+    afterByType?: Record<string, number>
     limit?: number
     shouldFetchDetail?: (sourceId: string) => boolean | Promise<boolean>
   }): Promise<RawActivity[]> {
     const token = await this.login()
     const limit = options?.limit ?? 50
-    const after = options?.after
+    const collected: RawActivity[] = []
 
-    const ids = await this.listRunIds(token, after)
-    const result: RawActivity[] = []
-    for (const id of ids) {
-      if (result.length >= limit) break
-      // 拉详情前去重:库里已有直接跳过(省请求)。
-      if (options?.shouldFetchDetail && !(await options.shouldFetchDetail(id))) continue
-      try {
-        const activity = await this.getActivityDetail(id)
-        if (after && Math.floor(activity.startTime.getTime() / 1000) < after) continue
-        result.push(activity)
-      } catch (error) {
-        console.warn(`[keep] 拉取活动 ${id} 失败:`, (error as Error).message)
+    for (const sport of KEEP_SPORTS) {
+      // Reason: 游标必须**按运动类型各算一个**。库里 keep 名下长期只有跑步,若共用
+      // source 级游标,新接入的骑行一旦入库就把游标推到最新骑行时间,从此时间上更早
+      // 但尚未入库的跑步永远拉不回来(反之亦然)。afterByType 缺失时回落到 source 级
+      // 游标,保持老行为。
+      // afterByType 一旦给出就是**权威且完备**的:某类型不在其中,意味着库里还没有
+      // 这个类型的任何活动 ⇒ 该类型应走全量。绝不能回落到 options.after ——
+      // 那是所有类型的游标下界,会把新接入类型(如首次开启的骑行)的全部历史挡在门外。
+      const after = options?.afterByType ? options.afterByType[sport.type] : options?.after
+      const ids = await this.listLogIds(token, sport, after)
+      // 配额按类型独立:否则先跑的 running 会吃掉全部 limit,骑行一条都进不来。
+      let taken = 0
+      for (const id of ids) {
+        if (taken >= limit) break
+        // 拉详情前去重:库里已有直接跳过(省请求)。
+        if (options?.shouldFetchDetail && !(await options.shouldFetchDetail(id))) continue
+        try {
+          const activity = await this.getActivityDetail(id, sport)
+          if (after && Math.floor(activity.startTime.getTime() / 1000) < after) continue
+          collected.push(activity)
+          taken++
+        } catch (error) {
+          console.warn(`[keep] 拉取${sport.label} ${id} 失败:`, (error as Error).message)
+        }
       }
+      if (taken > 0) console.info(`[keep] ${sport.label}: 取回 ${taken} 条`)
     }
-    return result
+
+    // 新→旧,让 limit 截断时优先保留最近的活动
+    collected.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())
+    return collected.slice(0, limit)
   }
 
-  async getActivityDetail(id: string): Promise<RawActivity> {
+  async getActivityDetail(id: string, sport?: KeepSport): Promise<RawActivity> {
+    const s = sport ?? sportFromId(id)
     const token = await this.login()
-    const res = await fetch(`${LOG_API_BASE}/${SPORT_TYPE}log/${id}`, {
+    const res = await fetch(`${LOG_API_BASE}/${s.logPath}/${id}`, {
       headers: this.authHeaders(token),
     })
     if (!res.ok) throw new Error(`Keep 活动详情失败: HTTP ${res.status}`)
@@ -175,7 +217,7 @@ export class KeepAdapter implements SyncAdapter {
       if (hasGeo && !isTreadmill) {
         const points = this.decode(d.geoPoints as string, true)
         if (Array.isArray(points) && isRealTrack(points as KeepPoint[])) {
-          gpxData = pointsToGPX(points as KeepPoint[], startMs, typeof d.name === 'string' ? d.name : 'Keep 跑步')
+          gpxData = pointsToGPX(points as KeepPoint[], startMs, typeof d.name === 'string' ? d.name : `Keep ${s.label}`)
         }
       }
     } catch (error) {
@@ -184,9 +226,11 @@ export class KeepAdapter implements SyncAdapter {
 
     return {
       id,
-      title: typeof d.name === 'string' && d.name ? d.name : 'Keep 跑步',
-      type: 'running',
-      isIndoor: isTreadmill || !gpxData,
+      title: typeof d.name === 'string' && d.name ? d.name : `Keep ${s.label}`,
+      type: s.type,
+      // Reason: 「无轨迹 ⇒ 室内」这条只对跑步成立(跑步机是主要的无 GPS 场景)。
+      // 骑行若沿用,一次轨迹解码失败就会把户外骑行错标成室内,所以只认 subtype。
+      isIndoor: isTreadmill || (s.type === 'running' && !gpxData),
       startTime: new Date(startMs),
       duration,
       distance,
