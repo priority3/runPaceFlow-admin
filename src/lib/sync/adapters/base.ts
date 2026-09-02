@@ -23,6 +23,14 @@ export interface SyncAdapter {
     endDate?: Date
     /** Unix timestamp - only fetch activities after this time (for incremental sync) */
     after?: number
+    /**
+     * 按活动类型分别给的增量游标(键为 RawActivity.type,值为 unix 秒)。
+     *
+     * Reason: 一个数据源可能同时供多种运动(如 Keep 的跑步+骑行),而它们的最新时间
+     * 各不相同。只用 source 级的单一 after,较新的那类会把游标推过较旧那类尚未入库的
+     * 活动,造成永久漏数据。适配器优先用本字段,缺失时回落到 after。
+     */
+    afterByType?: Record<string, number>
     limit?: number
     /**
      * 拉取单条活动详情前的去重判断回调。返回 false 则跳过该活动(不发详情/streams 请求)。
