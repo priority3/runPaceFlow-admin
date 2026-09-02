@@ -6,8 +6,8 @@
 FROM oven/bun:1.3.1 AS builder
 WORKDIR /app
 COPY package.json bun.lock ./
-# --ignore-scripts: 跳过 esbuild(drizzle-kit 传递依赖)的 postinstall 二进制校验(bun 下会失败);
-# 构建用 node 跑 next,不依赖 install 脚本。
+# --ignore-scripts: 构建用 node 跑 next,不依赖任何 install 脚本;保留该 flag 也让
+# 构建不受将来新增依赖的 postinstall 影响。
 RUN bun install --ignore-scripts
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -23,18 +23,10 @@ ENV PORT=3030
 ENV HOSTNAME="0.0.0.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 关键:把「稳定且昂贵」的层(系统库 / ws / Chromium)放在「应用代码 COPY」之前。
-# 这样改代码重建时,这些层能命中缓存 —— 不再每次重下 674MB Chromium、重装 ws,
-# 既不卡网络也不让镜像每次多长 ~1.8GB(旧顺序里它们在 COPY 之后,代码一变就全部失效重造)。
+# 关键:把「稳定且昂贵」的层(ws)放在「应用代码 COPY」之前,改代码重建时能命中缓存。
+# 注:此前这里还有 674MB Chromium 与 23 个 X11/GTK 系统库(赛事匹配曾用 Playwright),
+# 已随 race-matcher 改为普通 fetch 一并下线。
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Chromium 运行所需系统库(赛事匹配用 Playwright 启动 Chromium 爬 zuicool.com)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 \
-    libatspi2.0-0 libcups2 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0 libgtk-3-0 \
-    libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcomposite1 libxdamage1 \
-    libxext6 libxfixes3 libxkbcommon0 libxrandr2 wget \
-    && rm -rf /var/lib/apt/lists/*
 
 # @libsql 运行时需要 ws(standalone 没打包)。在「空 node_modules」上装 → 层很小
 # (旧顺序把它放在 COPY standalone 之后,会在大 node_modules 上 churn 出 ~1.1GB 的层);
@@ -45,10 +37,6 @@ RUN NODE_OPTIONS=--dns-result-order=ipv4first npm install ws --no-save --no-audi
     (npm init -y >/dev/null 2>&1 && \
      NODE_OPTIONS=--dns-result-order=ipv4first npm install ws --no-audit --no-fund \
        --registry=https://registry.npmmirror.com --fetch-timeout=60000 --fetch-retries=3)
-
-# Playwright Chromium 到固定路径(稳定,放应用代码之前以便缓存)
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
-RUN npx --yes playwright@1.61.0 install chromium
 
 RUN mkdir -p /app/data
 

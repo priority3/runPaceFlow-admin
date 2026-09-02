@@ -3,25 +3,14 @@
  *
  * 导出到 Arize Phoenix(OTLP http/protobuf,端点 ${PHOENIX_COLLECTOR_ENDPOINT}/v1/traces)。
  * 未配置 PHOENIX_COLLECTOR_ENDPOINT 时不注册 provider——@opentelemetry/api 全局退化为
- * no-op tracer,业务里的 withSpan 零开销直通,所以埋点代码不需要任何开关判断。
+ * no-op tracer,零开销。
+ *
+ * 说明:admin 侧自有的 withSpan 埋点已随 lib/pr 抽离(owner 在 pr-agent),
+ * 这里保留 provider 注册是为了让 Next.js 框架级 span(路由/渲染)仍能上报。
  */
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BatchSpanProcessor, NodeTracerProvider } from '@opentelemetry/sdk-trace-node'
-
-import { setTracingEnabled } from './trace'
-
-let activeProvider: NodeTracerProvider | null = null
-
-/** 主动 flush(评测脚本等短生命周期进程正常退出前调用,否则 Batch 缓冲的尾部 span 会丢)。 */
-export async function flushOtel(): Promise<void> {
-  if (!activeProvider) return
-  try {
-    await activeProvider.forceFlush()
-  } catch (error) {
-    console.warn('[otel] forceFlush 失败:', (error as Error).message)
-  }
-}
 
 export function initOtel() {
   const endpoint = process.env.PHOENIX_COLLECTOR_ENDPOINT
@@ -48,8 +37,6 @@ export function initOtel() {
     ],
   })
   provider.register()
-  activeProvider = provider
-  setTracingEnabled()
 
   // BatchSpanProcessor 默认缓冲 5s;部署/重启频繁,不 flush 会丢掉在途 span。
   // Reason: 收到终止信号时先 shutdown(会 flush)再退出,保住最后几条 trace。

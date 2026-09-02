@@ -89,9 +89,6 @@ export interface RawActivity {
 }
 
 /**
- * 适配器工厂函数已移至 service.ts
- * 各适配器可通过以下方式导入：
- * - import { NikeAdapter } from './adapters/nike'
- * - import { StravaAdapter } from './adapters/strava' (待实现)
- * - import { GarminAdapter } from './adapters/garmin' (待实现)
+ * 适配器工厂函数在 service.ts 的 createAdapter。
+ * 现存适配器:KeepAdapter(默认源)、StravaAdapter(政策停用,保留待命)。
  */

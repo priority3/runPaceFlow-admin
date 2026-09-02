@@ -1,1 +1,0 @@
-ALTER TABLE `activities` ADD `route_coordinates` text;

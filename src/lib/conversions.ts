@@ -10,6 +10,8 @@ export interface ConversionGoal {
   id: string
   name: string
   path: string
+  /** 前缀匹配(用于 /activity/[id] 这类动态路由);缺省为精确匹配。 */
+  prefix?: boolean
   description: string
 }
 
@@ -30,16 +32,13 @@ export const DEFAULT_GOALS: ConversionGoal[] = [
     description: '用户访问首页',
   },
   {
-    id: 'activities_view',
-    name: '活动列表浏览',
-    path: '/activities',
-    description: '用户浏览活动列表',
-  },
-  {
-    id: 'login_page',
-    name: '登录页访问',
-    path: '/login',
-    description: '用户访问登录页面',
+    id: 'activity_detail_view',
+    name: '活动详情浏览',
+    // Reason: 主站真实路由只有 / 与 /activity/[id];原来的 /activities、/login 在主站
+    // 根本不存在,精确匹配永远 0 命中 —— 面板一屏飘红 0% 的根因。
+    path: '/activity',
+    prefix: true,
+    description: '用户打开任一活动详情页',
   },
 ]
 
@@ -58,7 +57,7 @@ export async function getConversionStats(days = 30): Promise<ConversionResult[]>
     const visitorsResult = await db.execute({
       sql: `SELECT COUNT(DISTINCT visitor_id) as count
             FROM page_views
-            WHERE path = ? AND created_at >= ?`,
+            WHERE ${goal.prefix ? 'path LIKE ?' : 'path = ?'} AND created_at >= ?`,
       args: [goal.path, start],
     })
 
@@ -66,7 +65,7 @@ export async function getConversionStats(days = 30): Promise<ConversionResult[]>
     const dailyResult = await db.execute({
       sql: `SELECT date(created_at, 'unixepoch', '+8 hours') as day, COUNT(DISTINCT visitor_id) as count
             FROM page_views
-            WHERE path = ? AND created_at >= ?
+            WHERE ${goal.prefix ? 'path LIKE ?' : 'path = ?'} AND created_at >= ?
             GROUP BY day
             ORDER BY day ASC`,
       args: [goal.path, start],
