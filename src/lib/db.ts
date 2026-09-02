@@ -99,14 +99,6 @@ export async function ensureSchema() {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_error_events_path ON error_events(path)`,
       `CREATE INDEX IF NOT EXISTS idx_error_events_created_at ON error_events(created_at)`,
-      `CREATE TABLE IF NOT EXISTS ab_test_configs (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        variants TEXT NOT NULL,
-        traffic INTEGER NOT NULL DEFAULT 100,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )`,
       `CREATE TABLE IF NOT EXISTS scheduler_jobs (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,

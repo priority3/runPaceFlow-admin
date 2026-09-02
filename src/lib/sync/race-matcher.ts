@@ -5,8 +5,6 @@
  * Caches race data per year during sync to avoid redundant requests.
  */
 
-import type { Browser } from 'playwright'
-import { chromium } from 'playwright'
 
 /**
  * Race event definition
@@ -198,40 +196,24 @@ const KNOWN_CITIES = Object.keys(CITY_COORDINATES)
 // In-memory cache for races by year (shared across a sync session)
 const yearRacesCache = new Map<number, Race[]>()
 
-// Shared browser instance for the sync session
-let sharedBrowser: Browser | null = null
-let browserUnavailableWarned = false
+// Reason: 曾用 Playwright 开 Chromium 抓取,唯一原因是本文件的解析正则写了字面量
+// 「·」,而 zuicool 原始 HTML 发的是 &middot; —— page.content() 返回的是解码后的
+// DOM,恰好把实体解成了字面量,于是浏览器成了「实体解码器」。改为 fetch + 显式
+// 解码后,同一条正则在原始 HTML 上产出逐条一致的结果(实测同页 92 条命中、31 场
+// 马拉松完全相同),Chromium 及其 674MB 依赖链随之下线。
 
 /**
- * Initialize the race matcher (should be called at sync start)
+ * 保留为 no-op:抓取已改为无状态 fetch,不再需要预热浏览器。
+ * 签名保留是为了让 sync/service.ts 的调用点零改动(它在同步前后成对调用)。
  */
 export async function initRaceMatcher(): Promise<void> {
-  if (sharedBrowser) {
-    return
-  }
-
-  try {
-    sharedBrowser = await chromium.launch({ headless: true })
-    browserUnavailableWarned = false
-    console.info('[RaceMatcher] Browser initialized')
-  } catch (error) {
-    if (!browserUnavailableWarned) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.warn('[RaceMatcher] Browser unavailable, race matching will be skipped:', message)
-      browserUnavailableWarned = true
-    }
-  }
+  // no-op
 }
 
 /**
  * Clean up race matcher resources (should be called at sync end)
  */
 export async function cleanupRaceMatcher(): Promise<void> {
-  if (sharedBrowser) {
-    await sharedBrowser.close()
-    sharedBrowser = null
-    console.info('[RaceMatcher] Browser closed')
-  }
   yearRacesCache.clear()
   console.info('[RaceMatcher] Cache cleared')
 }
@@ -367,25 +349,44 @@ function isRealMarathon(name: string): boolean {
 /**
  * Scrape races for a specific year from zuicool.com
  */
-async function scrapeRacesForYear(year: number): Promise<Race[]> {
-  if (!sharedBrowser) {
-    throw new Error('[RaceMatcher] Browser not initialized. Call initRaceMatcher() first.')
-  }
+/**
+ * HTML 实体解码(仅需覆盖 zuicool 页面出现的几种)。
+ * Reason: 原实现依赖浏览器把 &middot; 解成「·」后再套正则;这里显式做同一件事,
+ * 让下方解析逻辑与浏览器路径逐字等价。
+ */
+function decodeEntities(html: string): string {
+  return html
+    .replace(/&middot;/g, '·')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
 
+async function scrapeRacesForYear(year: number): Promise<Race[]> {
   const races: Race[] = []
-  const page = await sharedBrowser.newPage()
   let currentPage = 1
   const maxPages = 20 // Safety limit
 
   console.info(`[RaceMatcher] Scraping ${year} races from zuicool.com...`)
 
-  try {
+  {
     while (currentPage <= maxPages) {
       const url = `https://zuicool.com/events?year=${year}&type=run&page=${currentPage}&per-page=100`
 
       try {
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
-        const content = await page.content()
+        // 页面是纯服务端渲染,原始 HTML 已含全部赛事数据,无需执行 JS。
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(30000),
+          headers: { 'user-agent': 'Mozilla/5.0 (compatible; RunPaceFlow/1.0)' },
+        })
+        if (!response.ok) {
+          console.warn(`[RaceMatcher] Page ${currentPage} 返回 HTTP ${response.status},停止抓取`)
+          break
+        }
+        const content = decodeEntities(await response.text())
 
         // Parse race entries from the events page
         const racePattern =
@@ -431,8 +432,6 @@ async function scrapeRacesForYear(year: number): Promise<Race[]> {
         break
       }
     }
-  } finally {
-    await page.close()
   }
 
   console.info(`[RaceMatcher] Total ${races.length} marathons found for ${year}`)
@@ -496,10 +495,6 @@ export async function matchRaceForActivity(
 ): Promise<string | null> {
   // Only match for half marathon or longer (≥20500m)
   if (distanceMeters < 20500) {
-    return null
-  }
-
-  if (!sharedBrowser) {
     return null
   }
 

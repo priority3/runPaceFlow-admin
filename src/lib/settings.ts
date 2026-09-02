@@ -2,7 +2,6 @@ export type SettingCategory =
   | 'database'
   | 'sync'
   | 'ai'
-  | 'pr'
   | 'map'
   | 'goals'
   | 'notification'
@@ -33,18 +32,15 @@ export const CATEGORY_META: Record<
   },
   sync: {
     label: '同步源',
-    description: '运动数据同步凭据。Keep 为默认同步源；Strava 因政策原因停用，凭据保留待命。',
+    description:
+      '运动数据同步凭据。Keep 是当前唯一自动同步源；Strava 因平台政策停用，适配器与路由保留待命，仅可手动触发 /api/sync/strava。',
     accent: 'green',
   },
   ai: {
     label: 'AI 分析',
-    description: 'Claude 或 OpenAI 兼容服务凭据，供活动洞察与 PR 链路共用。',
+    description:
+      '仅供 admin 侧活动洞察（AI 复盘文本生成）的凭据。PR 对话与 PR 复盘走本页顶部「PR Agent 模型网关」卡片，与这里同名但互不影响。',
     accent: 'purple',
-  },
-  pr: {
-    label: 'PR 伙伴',
-    description: 'PR agent 专属配置：对话入口、知识库检索、环境感知与生成模型覆盖。',
-    accent: 'violet',
   },
   map: {
     label: '地图',
@@ -98,7 +94,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   },
   {
     key: 'STRAVA_CLIENT_ID',
-    label: 'Strava Client ID',
+    label: 'Strava Client ID（停用待命）',
     description:
       'Strava API 应用的客户端 ID，在 strava.com/settings/api 创建应用后获取。当前 Strava 同步政策性停用，凭据保留待命。',
     category: 'sync',
@@ -106,7 +102,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   },
   {
     key: 'STRAVA_CLIENT_SECRET',
-    label: 'Strava Client Secret',
+    label: 'Strava Client Secret（停用待命）',
     description: 'Strava API 应用的客户端密钥，与 Client ID 同页获取。当前停用待命。',
     category: 'sync',
     kind: 'password',
@@ -114,7 +110,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   },
   {
     key: 'STRAVA_REFRESH_TOKEN',
-    label: 'Strava Refresh Token',
+    label: 'Strava Refresh Token（停用待命）',
     description:
       '经 OAuth 授权流程换取的长期刷新令牌，用于刷新 access token 拉取活动。当前停用待命。',
     category: 'sync',
@@ -167,25 +163,16 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     key: 'ANTHROPIC_MODEL',
     label: 'Claude 模型',
     description:
-      'admin 侧 PR 链路（复盘生成、对话）使用的 Claude 模型名称，留空用内置默认。注意：主站活动洞察的模型是写死的，此键管不到。第三方网关请填其支持的模型。',
+      '（本组只喂 admin 活动洞察）洞察生成使用的 Claude 模型名，留空用内置默认。注意：PR 对话/复盘的模型不在这里，在本页顶部「PR Agent 模型网关」卡片。',
     category: 'ai',
     kind: 'text',
     placeholder: 'claude-sonnet-4-20250514',
   },
   {
-    key: 'ANTHROPIC_VISION_MODEL',
-    label: 'Claude 视觉模型',
-    description:
-      '带图片的请求改用此模型（部分网关的主力模型不支持图片，实测会直接 404）。留空则图片请求仍用主模型。',
-    category: 'ai',
-    kind: 'text',
-    placeholder: 'mimo-v2.5',
-  },
-  {
     key: 'OPENAI_API_KEY',
     label: 'OpenAI 兼容 API Key',
     description:
-      'OpenAI、DeepSeek、通义千问等兼容服务的密钥，在对应平台的 API Keys 页面创建。作为 Claude 不可用时的备用通道。',
+      '（本组只喂 admin 活动洞察）OpenAI、DeepSeek、通义千问等兼容服务的密钥，在对应平台的 API Keys 页面创建。作为 Claude 不可用时的备用通道。',
     category: 'ai',
     kind: 'password',
     sensitive: true,
@@ -193,7 +180,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   {
     key: 'OPENAI_BASE_URL',
     label: 'OpenAI 兼容 Base URL',
-    description: '第三方 OpenAI 兼容服务的 API 地址（如 https://api.deepseek.com）；官方 OpenAI 可留空。',
+    description: '（本组只喂 admin 活动洞察）第三方 OpenAI 兼容服务的 API 地址（如 https://api.deepseek.com）；官方 OpenAI 可留空。',
     category: 'ai',
     kind: 'url',
     placeholder: 'https://api.deepseek.com',
@@ -201,7 +188,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   {
     key: 'OPENAI_MODEL',
     label: 'OpenAI 兼容模型',
-    description: '走 OpenAI 兼容通道时使用的模型名称，填所选服务支持的模型。',
+    description: '（本组只喂 admin 活动洞察）走 OpenAI 兼容通道时使用的模型名称，填所选服务支持的模型。',
     category: 'ai',
     kind: 'text',
     placeholder: 'gpt-4o',
@@ -216,72 +203,6 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     options: [
       { label: 'Chat Completions', value: 'chat' },
       { label: 'Responses API', value: 'responses' },
-    ],
-  },
-  // ─── PR 伙伴 ───────────────────────────────────────────────────────────────
-  {
-    key: 'PR_CHAT_TOKEN',
-    label: 'PR 对话 H5 访问 Token',
-    description:
-      'H5 对话应用（/pr）的免登录访问令牌。自定一串随机字符串即可；PushPlus 推送里的链接会自动携带它，点开即用。',
-    category: 'pr',
-    kind: 'password',
-    sensitive: true,
-  },
-  {
-    key: 'PR_EMBEDDING_API_KEY',
-    label: 'PR 知识库 Embedding API Key',
-    description:
-      'OpenAI 兼容 embedding 服务密钥。推荐 SiliconFlow（siliconflow.cn 注册即送免费额度，bge-m3 免费档够用）。与 Embedding 模型齐备后，PR 知识检索自动升级为混合模式；留空则纯词法检索。',
-    category: 'pr',
-    kind: 'password',
-    sensitive: true,
-  },
-  {
-    key: 'PR_EMBEDDING_BASE_URL',
-    label: 'PR 知识库 Embedding Base URL',
-    description:
-      'OpenAI 兼容 embedding 端点，如 SiliconFlow 的 https://api.siliconflow.cn/v1；留空使用官方 OpenAI。',
-    category: 'pr',
-    kind: 'url',
-    placeholder: 'https://api.siliconflow.cn/v1',
-  },
-  {
-    key: 'PR_EMBEDDING_MODEL',
-    label: 'PR 知识库 Embedding 模型',
-    description:
-      '向量化模型名称，如 BAAI/bge-m3。与 API Key 齐备才启用向量召回；更换模型后旧向量自动失效，需重跑回填脚本。',
-    category: 'pr',
-    kind: 'text',
-    placeholder: 'BAAI/bge-m3',
-  },
-  {
-    key: 'PR_MEMORY_RECONCILE_APPLY',
-    label: '记忆调和写入开关',
-    description:
-      'PR 记忆维护任务中 LLM 语义调和（合并冗余/矛盾记忆）的写库开关。填 1 开启；留空或其他值为 dry-run，只把建议打进日志、不写库。',
-    category: 'pr',
-    kind: 'text',
-    placeholder: '1',
-  },
-  {
-    key: 'PR_REVIEW_MODEL',
-    label: 'PR 生成模型覆盖',
-    description:
-      'PR 复盘/对话生成的模型名覆盖，对 Claude 与 OpenAI 两条通道同时生效。留空则各通道分别回落到 ANTHROPIC_MODEL / OPENAI_MODEL。',
-    category: 'pr',
-    kind: 'text',
-  },
-  {
-    key: 'PR_REVIEW_PROVIDER',
-    label: 'PR 生成提供方优先级',
-    description:
-      'PR 生成先走哪条通道：claude 优先 Claude、失败降级 OpenAI 兼容；openai 反之。留空默认 Claude 优先。',
-    category: 'pr',
-    kind: 'select',
-    options: [
-      { label: 'Claude 优先', value: 'claude' },
-      { label: 'OpenAI 兼容优先', value: 'openai' },
     ],
   },
   // ─── 运动目标 ─────────────────────────────────────────────────────────────
