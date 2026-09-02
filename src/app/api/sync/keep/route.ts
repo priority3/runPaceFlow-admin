@@ -5,6 +5,8 @@
  * Body: { limit?: number, fullSync?: boolean, probe?: boolean }
  *
  * - probe=true:干跑,不写库,直接拉最近几条返回映射后的字段(校验单位/轨迹是否完整)。
+ *   可在 body 传 mobile/password 用**未保存的草稿凭据**测试(配置页「测试连接」就是这么用的:
+ *   先测通再保存,而不是把可能错的凭据先写进库);两者缺省时回落已保存的配置。
  * - 否则:performSync 增量同步 Keep → 写活动库 → 触发 PR 跑后复盘。
  */
 import { NextResponse } from 'next/server'
@@ -18,7 +20,7 @@ import { performSync } from '@/lib/sync/service'
 export const dynamic = 'force-dynamic'
 
 export const POST = withAuth(async (request) => {
-  let body: { limit?: number; fullSync?: boolean; probe?: boolean } = {}
+  let body: { limit?: number; fullSync?: boolean; probe?: boolean; mobile?: string; password?: string } = {}
   try {
     body = await request.json()
   } catch {
@@ -26,11 +28,21 @@ export const POST = withAuth(async (request) => {
   }
 
   if (body.probe) {
-    const settings = await getRuntimeSettings({ force: true })
-    const mobile = settings.KEEP_MOBILE
-    const password = settings.KEEP_PASSWORD
+    // 草稿优先:body 里带了就用它(配置页未保存的输入值),否则回落已保存的配置。
+    const draftMobile = typeof body.mobile === 'string' ? body.mobile.trim() : ''
+    const draftPassword = typeof body.password === 'string' ? body.password.trim() : ''
+    let mobile = draftMobile
+    let password = draftPassword
     if (!mobile || !password) {
-      return NextResponse.json({ error: 'KEEP_MOBILE / KEEP_PASSWORD 未在设置里配置' }, { status: 400 })
+      const settings = await getRuntimeSettings({ force: true })
+      mobile = mobile || settings.KEEP_MOBILE
+      password = password || settings.KEEP_PASSWORD
+    }
+    if (!mobile || !password) {
+      return NextResponse.json(
+        { error: 'Keep 手机号与密码都要填(输入框里填上即可测,不必先保存)' },
+        { status: 400 },
+      )
     }
     const adapter = new KeepAdapter(mobile, password)
     if (!(await adapter.authenticate())) {
