@@ -1,6 +1,6 @@
 # Component Guidelines
 
-> How components are built in this repo. The canonical template for a new dashboard panel is `src/app/dashboard/components/SchedulerPanel.tsx` (fetch + loading + error banner + toast + inline edit); `ABTestConfigPanel.tsx` adds the two-step delete.
+> How components are built in this repo. The canonical template for a new dashboard panel is `src/app/dashboard/components/SchedulerPanel.tsx` (fetch + loading + error banner + toast + inline edit); `PrAccessCard.tsx` adds the two-step destructive confirm.
 
 ---
 
@@ -44,7 +44,7 @@ export function StatCard({ icon: Icon, label, value, accent }: {
 ## Interactivity
 
 - Native `<button>` with explicit `type="button"` (62×; `type="submit"` only inside real forms).
-- Destructive actions use **inline two-step confirm** — first click swaps the icon for 确认删除/取消 buttons held in a `confirmingDelete` state (`src/app/dashboard/components/ABTestConfigPanel.tsx:186`). `window.confirm()` is never used (0/33).
+- Destructive actions use **inline two-step confirm** — first click swaps the button for 确认X/取消 buttons held in a `confirming*` state (`src/app/dashboard/components/PrAccessCard.tsx`, device revoke). `window.confirm()` is never used. The `ABTestConfigPanel.tsx` this spec originally cited was deleted after the 2026-07-22 audit — PrAccessCard is the live reference as of 2026-09-03.
 - Mutation feedback via the in-house toast: `const { success, error: toastError } = useToast()` — the `error: toastError` rename is universal (5/5 consumer files). `success('已保存')` / `` toastError(`保存失败 (HTTP ${res.status})`) ``.
 - Forms split by channel: settings/auth use server actions with **uncontrolled** inputs (`defaultValue` + `name="setting:KEY"`, `src/app/dashboard/components/SettingsPanel.tsx`); panel CRUD uses **controlled** draft objects in useState (`SchedulerPanel.tsx`).
 
