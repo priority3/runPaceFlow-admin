@@ -229,7 +229,8 @@ export async function generateAnalyticsDigest(): Promise<{ title: string; conten
 export async function generateDailyReport(): Promise<{ title: string; content: string }> {
   const db = getDb()
 
-  // Today's activities (UTC)
+  // 「今天」按容器时区的日界算(compose 里设了 TZ=Asia/Shanghai,即北京 00:00)。
+  // Reason: 此前容器 TZ 未设 = UTC,日界落在北京 08:00 —— 早于 8 点的晨跑会被算进前一天。
   const todayStart = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000)
   const todayEnd = todayStart + 86400
 
