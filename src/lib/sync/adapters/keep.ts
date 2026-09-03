@@ -106,22 +106,37 @@ export class KeepAdapter implements SyncAdapter {
     return this.authenticate()
   }
 
-  /** 分页拉取某个运动的日志 id(新→旧);增量时到游标更旧的页就停。 */
-  private async listLogIds(token: string, sport: KeepSport, after?: number): Promise<string[]> {
-    const ids: string[] = []
+  /**
+   * 分页拉取某个运动的日志条目(新→旧);增量时到游标更旧的页就停。
+   *
+   * Reason: 除了 id 还要把 stats.name 一并带出来 —— **活动名只存在于列表**,
+   * 详情接口的返回体里根本没有 name 字段(实测 30 个字段里无 name),
+   * 所以标题只能从这里透传下去,否则每条都会退化成兜底的「Keep 跑步/骑行」。
+   */
+  private async listLogEntries(
+    token: string,
+    sport: KeepSport,
+    after?: number,
+  ): Promise<Array<{ id: string; name?: string }>> {
+    const entries: Array<{ id: string; name?: string }> = []
     let lastDate = 0
     for (let page = 0; page < MAX_LIST_PAGES; page++) {
       const url = `${LIST_API}?dateUnit=all&type=${sport.listType}&lastDate=${lastDate}`
       const res = await fetch(url, { headers: this.authHeaders(token) })
       if (!res.ok) break
       const json = (await res.json()) as {
-        data?: { records?: Array<{ logs?: Array<{ stats?: { id?: string; isDoubtful?: boolean } }> }>; lastTimestamp?: number }
+        data?: {
+          records?: Array<{ logs?: Array<{ stats?: { id?: string; name?: string; isDoubtful?: boolean } }> }>
+          lastTimestamp?: number
+        }
       }
       const records = json?.data?.records ?? []
       for (const rec of records) {
         for (const log of rec.logs ?? []) {
           const stats = log?.stats
-          if (stats?.id && !stats.isDoubtful) ids.push(stats.id)
+          if (stats?.id && !stats.isDoubtful) {
+            entries.push({ id: stats.id, name: typeof stats.name === 'string' ? stats.name : undefined })
+          }
         }
       }
       lastDate = json?.data?.lastTimestamp ?? 0
@@ -129,7 +144,7 @@ export class KeepAdapter implements SyncAdapter {
       // 增量:本页最旧一条已早于游标,后续页都更旧 → 停。
       if (after && Math.floor(lastDate / 1000) < after) break
     }
-    return ids
+    return entries
   }
 
   async getActivities(options?: {
@@ -153,15 +168,15 @@ export class KeepAdapter implements SyncAdapter {
       // 这个类型的任何活动 ⇒ 该类型应走全量。绝不能回落到 options.after ——
       // 那是所有类型的游标下界,会把新接入类型(如首次开启的骑行)的全部历史挡在门外。
       const after = options?.afterByType ? options.afterByType[sport.type] : options?.after
-      const ids = await this.listLogIds(token, sport, after)
+      const entries = await this.listLogEntries(token, sport, after)
       // 配额按类型独立:否则先跑的 running 会吃掉全部 limit,骑行一条都进不来。
       let taken = 0
-      for (const id of ids) {
+      for (const { id, name } of entries) {
         if (taken >= limit) break
         // 拉详情前去重:库里已有直接跳过(省请求)。
         if (options?.shouldFetchDetail && !(await options.shouldFetchDetail(id))) continue
         try {
-          const activity = await this.getActivityDetail(id, sport)
+          const activity = await this.getActivityDetail(id, sport, name)
           if (after && Math.floor(activity.startTime.getTime() / 1000) < after) continue
           collected.push(activity)
           taken++
@@ -177,7 +192,11 @@ export class KeepAdapter implements SyncAdapter {
     return collected.slice(0, limit)
   }
 
-  async getActivityDetail(id: string, sport?: KeepSport): Promise<RawActivity> {
+  /**
+   * @param listName 列表里的 stats.name(如「户外骑行」「晨跑」)。详情接口不返回 name,
+   *                 所以标题只能由调用方从列表透传进来;缺省时回落到按运动类型的兜底名。
+   */
+  async getActivityDetail(id: string, sport?: KeepSport, listName?: string): Promise<RawActivity> {
     const s = sport ?? sportFromId(id)
     const token = await this.login()
     const res = await fetch(`${LOG_API_BASE}/${s.logPath}/${id}`, {
@@ -203,6 +222,9 @@ export class KeepAdapter implements SyncAdapter {
     // 只有解出「≥3 个、坐标非恒定」的点才算真轨迹;室内判定优先看 subtype。
     const isTreadmill = d.subtype === 'treadmill'
 
+    // 活动名取自列表的 stats.name(详情接口不返回 name);缺省再按运动类型兜底。
+    const title = listName?.trim() || `Keep ${s.label}`
+
     // 尽力而为解码轨迹 + 逐点心率;失败则降级为无轨迹摘要。
     let gpxData: string | undefined
     let maxHeartRate: number | undefined
@@ -217,7 +239,7 @@ export class KeepAdapter implements SyncAdapter {
       if (hasGeo && !isTreadmill) {
         const points = this.decode(d.geoPoints as string, true)
         if (Array.isArray(points) && isRealTrack(points as KeepPoint[])) {
-          gpxData = pointsToGPX(points as KeepPoint[], startMs, typeof d.name === 'string' ? d.name : `Keep ${s.label}`)
+          gpxData = pointsToGPX(points as KeepPoint[], startMs, title)
         }
       }
     } catch (error) {
@@ -226,7 +248,7 @@ export class KeepAdapter implements SyncAdapter {
 
     return {
       id,
-      title: typeof d.name === 'string' && d.name ? d.name : `Keep ${s.label}`,
+      title,
       type: s.type,
       // Reason: 「无轨迹 ⇒ 室内」这条只对跑步成立(跑步机是主要的无 GPS 场景)。
       // 骑行若沿用,一次轨迹解码失败就会把户外骑行错标成室内,所以只认 subtype。
