@@ -72,7 +72,9 @@ export function withAuth<TContext = unknown>(handler: RouteHandler<TContext>): R
  * authenticate with a shared token configured in the admin settings; the dashboard
  * keeps working via its session cookie.
  */
-export function withHealthImportAuth<TContext = unknown>(
+function tokenOrSessionAuth<TContext = unknown>(
+  settingKey: string,
+  logTag: string,
   handler: RouteHandler<TContext>,
 ): RouteHandler<TContext> {
   return async (request: Request, context?: TContext) => {
@@ -83,9 +85,9 @@ export function withHealthImportAuth<TContext = unknown>(
       // token auth is unavailable, and we fall back to admin-session auth.
       let expectedToken = ''
       try {
-        expectedToken = await getRuntimeSetting('HEALTH_IMPORT_TOKEN')
+        expectedToken = await getRuntimeSetting(settingKey)
       } catch (error) {
-        console.warn('[health-import] 读取上报 Token 失败:', (error as Error).message)
+        console.warn(`[${logTag}] 读取 ${settingKey} 失败:`, (error as Error).message)
       }
 
       const providedToken = extractBearerToken(request.headers.get('authorization'))
@@ -102,6 +104,25 @@ export function withHealthImportAuth<TContext = unknown>(
       return internalError(request, error)
     }
   }
+}
+
+export function withHealthImportAuth<TContext = unknown>(
+  handler: RouteHandler<TContext>,
+): RouteHandler<TContext> {
+  return tokenOrSessionAuth('HEALTH_IMPORT_TOKEN', 'health-import', handler)
+}
+
+/**
+ * Auth wrapper for the sync trigger: admin session OR `Bearer SYNC_TRIGGER_TOKEN`.
+ *
+ * Reason: pr-agent 的对话里可以说一句「同步一下」现拉数据,而同步的执行体在本仓。
+ * 它是服务端到服务端调用,拿不到本仓的会话 cookie —— 给它一条 token 通路。未配置
+ * SYNC_TRIGGER_TOKEN 时行为与旧版完全一致(只认会话),面板照常工作。
+ */
+export function withSyncTriggerAuth<TContext = unknown>(
+  handler: RouteHandler<TContext>,
+): RouteHandler<TContext> {
+  return tokenOrSessionAuth('SYNC_TRIGGER_TOKEN', 'sync-trigger', handler)
 }
 
 /**
