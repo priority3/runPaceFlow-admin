@@ -11,7 +11,7 @@
  */
 import { NextResponse } from 'next/server'
 
-import { withAuth } from '@/lib/api-helpers'
+import { withSyncTriggerAuth } from '@/lib/api-helpers'
 import { requestPrReviewBatch } from '@/lib/pr-agent-client'
 import { getRuntimeSettings } from '@/lib/runtime-config'
 import { KeepAdapter } from '@/lib/sync/adapters/keep'
@@ -19,7 +19,9 @@ import { performSync } from '@/lib/sync/service'
 
 export const dynamic = 'force-dynamic'
 
-export const POST = withAuth(async (request) => {
+// 鉴权:admin 会话(面板 / 配置页测试连接)或 Bearer SYNC_TRIGGER_TOKEN
+// (pr-agent 在对话里说「同步一下」时打过来,服务端到服务端拿不到会话 cookie)。
+export const POST = withSyncTriggerAuth(async (request) => {
   let body: { limit?: number; fullSync?: boolean; probe?: boolean; mobile?: string; password?: string } = {}
   try {
     body = await request.json()
