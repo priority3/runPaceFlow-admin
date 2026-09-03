@@ -18,6 +18,8 @@ import {
 import { cn, formatDateTime } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 
+import { PrJobsPanel } from './PrJobsPanel'
+
 import { LoadingState } from './shared'
 
 interface SchedulerJob {
@@ -361,6 +363,8 @@ export function SchedulerPanel() {
           ))}
         </div>
       </section>
+
+      <PrJobsPanel />
     </div>
   )
 }
