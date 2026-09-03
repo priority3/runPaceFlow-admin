@@ -35,6 +35,8 @@ type ActivityRow = {
   elevationGain: number | null
 }
 
+// 以下日界(今天/本周/本月)都走容器时区,由 compose 的 TZ=Asia/Shanghai 决定。
+// 容器 TZ 未设时会退化成 UTC 日界(= 北京 08:00),清晨的活动会被归到前一天。
 function startOfToday(date = new Date()) {
   const d = new Date(date)
   d.setHours(0, 0, 0, 0)
