@@ -4,6 +4,7 @@ import { CollapsibleSection } from './shared'
 import { HealthRecoveryPanel } from './HealthRecoveryPanel'
 import { HomeLocationCard } from './HomeLocationCard'
 import { MemoryPanel } from './MemoryPanel'
+import { PrAccessCard } from './PrAccessCard'
 import { PrReviewsPanel } from './PrReviewsPanel'
 
 /**
@@ -25,6 +26,9 @@ export function PrPanel() {
       </CollapsibleSection>
       <CollapsibleSection title="常跑地点 · 天气与环境感知的定位" defaultOpen={false}>
         <HomeLocationCard />
+      </CollapsibleSection>
+      <CollapsibleSection title="对话页入口 · 签发一次性链接与管理设备" defaultOpen={false}>
+        <PrAccessCard />
       </CollapsibleSection>
     </div>
   )
