@@ -2,11 +2,18 @@ name: deploy
 
 # main 有推送 → 自动部署到服务器。
 #
-# 机制:GitHub 托管 runner 把仓库内容 rsync 到服务器部署目录,再就地
-# `docker compose up -d --build`(compose 是 build: .,镜像在服务器上现场构建)。
+# 机制:GitHub runner 构建镜像并推到 GHCR,服务器只负责 `docker compose pull` + 重启。
 #
-# 为什么用 rsync 而不是在服务器上 git pull:服务器 /opt/runPaceFlow-admin 的 git index
-# 已损坏(fatal: index file smaller than expected),且那边也不该持有 GitHub 凭据。
+# 为什么不在服务器上现场构建(2026-09-03 改):服务器拉 npm 单个包是好的(实测 0.6s/200),
+# 但 `bun install` 几百个包并发时会被掐断,构建时好时坏。拉镜像是少量大层的顺序下载,
+# 正好避开这个毛病;而且构建挪到 runner 后,构建失败在 GitHub 这一步就红,不会出现
+# 「workflow 绿了但线上还是旧代码」——那正是 PrAccessCard 那次静默没上线的原因。
+#
+# 服务器不持有任何长期 registry 凭据:用本次 job 的 GITHUB_TOKEN 临时登录,拉完立刻
+# logout,token 随 job 结束失效。
+#
+# 为什么仍然 rsync 源码:服务器上的 docker-compose.yml 引用了仓库里的辅助文件
+# (备份脚本等),且源码在手边便于排查。它不再是构建来源。
 on:
   push:
     branches: [main]
@@ -14,7 +21,10 @@ on:
 
 concurrency:
   group: deploy-runpaceflow-admin
-  cancel-in-progress: false # 部署不可中断:半路取消会留下构建到一半的容器
+  cancel-in-progress: false # 部署不可中断:半路取消会留下拉到一半的镜像
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   # 先复用 checks:构建不过的东西不该上线。
@@ -24,8 +34,34 @@ jobs:
   deploy:
     needs: checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # 推镜像到 GHCR
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 镜像名必须全小写(GHCR 规则),而仓库名带大写字母。
+      - name: 规范化镜像名
+        run: echo "IMAGE=$(echo '${{ env.IMAGE }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ github.sha }}
+          # GitHub Actions 缓存:未变的层不重建,后续部署只推应用代码那一层。
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: 准备 SSH
         env:
@@ -33,6 +69,7 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           # 末尾换行不能少:OpenSSH 私钥缺 trailing newline 会报 error in libcrypto
           printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
@@ -43,12 +80,13 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # --delete 清掉服务器上已从仓库删除的文件(拆分收尾删了 100+ 文件,不清会留僵尸)。
-        # 排除项是「服务器独有、仓库不该覆盖」的:
+        # 不再是构建来源(镜像在 runner 上建),但 compose 引用的辅助文件仍需保持最新。
+        # --delete 清掉服务器上已从仓库删除的文件。排除项是「服务器独有、仓库不该覆盖」的:
         #   .env / docker-compose.yml —— 密钥与本地拓扑(外部卷、host 网络、phoenix 依赖)
         #   data/ —— admin.db 与上传目录
         #   .git —— 那边的 index 已损坏,别动它
         run: |
+          set -euo pipefail
           rsync -az --delete \
             -e "ssh -i ~/.ssh/deploy -p $PORT -o BatchMode=yes" \
             --exclude '.git' \
@@ -59,14 +97,31 @@ jobs:
             --exclude '.next' \
             ./ "$USER@$HOST:/opt/runPaceFlow-admin/"
 
-      - name: 重建并启动
+      - name: 拉取镜像并启动
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # set -o pipefail 不能少:此前 `docker compose ... | tail -20` 让 shell 取了 tail
+        # 的退出码,构建失败照样是绿的。
+        #
+        # heredoc 刻意**不加引号**:让 token 在 runner 这边展开进 stdin 流,而不是作为
+        # ssh 的命令行参数 —— 后者会短暂出现在服务器的 ps 里。脚本内没有其他 $ 变量,
+        # 所以本地展开不会误伤(新增变量时务必转义)。
         run: |
-          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" \
-            'cd /opt/runPaceFlow-admin && docker compose up -d --build runpaceflow-admin 2>&1 | tail -20'
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<REMOTE
+          set -euo pipefail
+          cd /opt/runPaceFlow-admin
+          echo '$REGISTRY_TOKEN' | docker login ghcr.io -u '$REGISTRY_USER' --password-stdin
+          # 无论后续成败都登出:服务器不该留下任何 registry 凭据
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          docker compose pull runpaceflow-admin
+          docker compose up -d runpaceflow-admin
+          docker image prune -f --filter 'until=168h' >/dev/null 2>&1 || true
+          REMOTE
 
       - name: 部署后探活
         env:
@@ -74,6 +129,7 @@ jobs:
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
         run: |
+          set -euo pipefail
           ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           for i in $(seq 1 45); do
             sleep 2
