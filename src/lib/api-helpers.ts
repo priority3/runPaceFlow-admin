@@ -126,6 +126,36 @@ export function withSyncTriggerAuth<TContext = unknown>(
 }
 
 /**
+ * Auth wrapper for the read-only RunPaceFlow main-site API.
+ *
+ * Reason: this is a deployment pairing secret, not an editable admin setting.
+ * Reading it directly from env keeps the token out of settings export and the
+ * admin UI while still using the same constant-time comparison as other tokens.
+ */
+export function withMainSiteAuth<TContext = unknown>(
+  handler: RouteHandler<TContext>,
+): RouteHandler<TContext> {
+  return async (request: Request, context?: TContext) => {
+    try {
+      const expectedToken = process.env.MAIN_SITE_API_TOKEN || ''
+      const headerValue = request.headers.get('authorization')
+      const prefix = 'Bearer '
+      const providedToken = headerValue?.startsWith(prefix)
+        ? headerValue.slice(prefix.length).trim()
+        : ''
+
+      if (!expectedToken || !providedToken || !safeEqual(providedToken, expectedToken)) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+
+      return await handler(request, context)
+    } catch (error) {
+      return internalError(request, error)
+    }
+  }
+}
+
+/**
  * Auth wrapper for DYNAMIC route segments (e.g. `[id]`, `[runId]`).
  *
  * Reason: Next.js's build-time route validator requires a dynamic handler's second
@@ -155,4 +185,3 @@ export function withAuthParams<P>(
     }
   }
 }
-

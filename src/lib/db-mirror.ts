@@ -10,7 +10,7 @@
  *   主键承载增量游标。镜像表只为灾难恢复,不服务查询,不复刻约束/索引
  * - 失败不抛错只落日志,下轮自愈;inFlight 防重入;单轮大表上限 5000 行,
  *   首次回填分轮吃完
- * - 目标**必须**由 ADMIN_MIRROR_DATABASE_URL 显式指定,不缺省复用主站库。
+ * - 目标**必须**由 ADMIN_MIRROR_DATABASE_URL 显式指定,不缺省复用 Turso 镜像库。
  *   Reason: 曾回落到 settings.DATABASE_URL,而那个键的用途是「活动数据镜像的目标」
  *   (见 sync/mirror.ts)。于是一填它去开活动镜像,admin.db 整库就被顺带 dump 到
  *   同一个远端 —— 包括 app_settings 里**加密的 Keep 手机号与密码**(SKIP_TABLES

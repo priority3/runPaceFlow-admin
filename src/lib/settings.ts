@@ -27,7 +27,7 @@ export const CATEGORY_META: Record<
 > = {
   database: {
     label: '数据库',
-    description: 'RunPaceFlow 主应用的数据存储，当前生产环境使用 Turso/libSQL。',
+    description: 'Turso/libSQL 镜像与备份目标。活动读写统一使用挂载的 shared.db。',
     accent: 'blue',
   },
   sync: {
@@ -67,18 +67,18 @@ export const CATEGORY_META: Record<
 export const SETTING_DEFINITIONS: SettingDefinition[] = [
   {
     key: 'DATABASE_URL',
-    label: '数据库地址',
+    label: 'Turso 镜像地址',
     description:
-      '主应用数据库连接串。Turso 远程库填 libsql://<库名>-<org>.turso.io（Turso 控制台或 `turso db show` 可查）；本地开发可填 file: SQLite 路径。',
+      'Admin 将 shared.db 的活动数据单向镜像到这里，作为异地备份。主站不会收到或使用此地址。Turso 远程库填 libsql://<库名>-<org>.turso.io。',
     category: 'database',
     kind: 'url',
     placeholder: 'libsql://your-database.turso.io',
   },
   {
     key: 'DATABASE_AUTH_TOKEN',
-    label: '数据库认证 Token',
+    label: 'Turso 镜像认证 Token',
     description:
-      'Turso 远程库必填，用 `turso db tokens create <库名>` 生成；本地 file: 数据库留空即可。',
+      '仅供 Admin 写入 Turso 镜像，主站不会收到此 Token。远程库用 `turso db tokens create <库名>` 生成；本地 file: 数据库留空即可。',
     category: 'database',
     kind: 'password',
     sensitive: true,
