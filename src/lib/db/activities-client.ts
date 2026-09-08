@@ -15,8 +15,8 @@ import * as schema from './activities-schema'
  * 这是独立于 admin 配置库(src/lib/db.ts 的 admin.db)的第二个连接,专用于 activities/
  * splits/syncLogs/userProfile/activityInsights 这套表。
  *
- * 库路径优先使用配置库里的 DATABASE_URL / DATABASE_AUTH_TOKEN。
- * ACTIVITIES_DATABASE_URL 仍作为部署期显式覆盖；默认本地 file:./data/shared.db。
+ * 库路径只认活动库专用的 ACTIVITIES_DATABASE_URL / ACTIVITIES_DATABASE_AUTH_TOKEN；
+ * 默认本地 file:./data/shared.db。Turso 镜像配置 DATABASE_URL 不参与活动读写。
  */
 interface DatabaseConfig {
   url: string
@@ -58,9 +58,8 @@ async function getDatabaseConfig(): Promise<DatabaseConfig> {
   }
 
   // Reason: 活动库只认专用键 ACTIVITIES_DATABASE_URL(env 优先,其次 app_settings)。
-  // 绝不回退到 settings.DATABASE_URL —— 该键在 app_settings 里是「导出给主站前端」的库地址
-  // (现网即远程 Turso)。若在此回退,一旦 ACTIVITIES_DATABASE_URL 缺失,活动/PR 数据会被
-  // 静默写进主站库(数据分裂根源);宁可走下方本地默认库兜底,也不借用主站地址。
+  // 绝不回退到 settings.DATABASE_URL —— 该键只用于 Turso 镜像。
+  // 若 ACTIVITIES_DATABASE_URL 缺失,宁可走下方本地默认库兜底,也不借用镜像地址。
   const url =
     process.env.ACTIVITIES_DATABASE_URL ||
     settings.ACTIVITIES_DATABASE_URL

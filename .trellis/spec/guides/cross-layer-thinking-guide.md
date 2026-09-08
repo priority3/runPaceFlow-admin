@@ -120,6 +120,20 @@ After implementation:
       casting payload fields locally
 - [ ] Checked that derived state points back to the source event identifier
       (`seq`, `id`, `version`) instead of inventing a second cursor
+
+## Service-Owned Read Databases
+
+When a display service reads data owned by another service, keep the database
+connection in the owner service:
+
+- expose a narrow, authenticated read API with a fixed operation allowlist;
+- return business data only, never database URLs, credentials, or settings maps;
+- let the owner read its local mounted database directly and keep remote mirrors
+  as a separate one-way backup path;
+- define serialization at the HTTP boundary (for example, ISO dates) and use a
+  single decoder in the consumer;
+- verify the owner's local database has rows before treating an empty response
+  as a connectivity failure.
 - [ ] Checked that scripts / eval runners gate features via the SAME config
       resolution function the app layer uses (e.g. `getEmbeddingConfig()`),
       never a raw `process.env` check — env-only checks diverge from

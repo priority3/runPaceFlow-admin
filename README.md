@@ -23,8 +23,8 @@ RunPaceFlow 的**运维控制台**(单用户自部署):主站与 [pr-agent](http
   不再持有第二份实现——曾经的 `lib/pr` 副本(6.8k 行)已删除。
 - **活动同步的 owner 在本仓**:Keep/Strava 适配器 + 每小时增量同步;同步完成后调
   pr-agent 生成复盘。
-- **三个库,别混**:`admin.db`(本仓配置/访问分析)、`shared.db`(活动/健康/PR 数据,
-  与 pr-agent 共享卷)、主站库(settings 里的 `DATABASE_URL`,通常远程 Turso)。
+- **两个运行时库**:`admin.db`(本仓配置/访问分析)、`shared.db`(活动/健康/PR 数据,
+  与 pr-agent 共享卷)。主站通过只读 API 读取 `shared.db`；`DATABASE_URL` 指向的 Turso 只作 Admin 镜像/备份。
 - 旧 H5 对话页 `/pr` 只剩跳转壳(跳去 pr-agent 的域名),历史推送链接不断链。
 
 ## 本地启动
@@ -52,18 +52,23 @@ docker compose -f docker-compose.example.yml up -d --build
 - `SETTINGS_ENCRYPTION_KEY`:配置加密密钥(丢了密文配置全废,务必另存一份)
 - `CONFIG_DATABASE_URL`:配置库(本地 `file:./data/admin.db` 或 Turso)
 - `ACTIVITIES_DATABASE_URL`:活动/PR 共享库(与 pr-agent 挂同一卷)
+- `MAIN_SITE_API_TOKEN`:主站调用只读 API 的服务间 Token，需与主站 `RUNPACEFLOW_ADMIN_API_TOKEN` 相同
+- `DATABASE_URL` / `DATABASE_AUTH_TOKEN`:Turso 镜像目标与凭据，只在 Admin 侧使用
 - `PR_AGENT_URL` / `PR_AGENT_TOKEN`:pr-agent 服务端地址(容器内网)与共享 token
   (对应 pr-agent 侧 `PR_ADMIN_TOKEN`)——不配则 PR 系面板 502
 - `NEXT_PUBLIC_PR_AGENT_URL`:pr-agent 公网地址(`/pr` 跳转与面板外链用)
 
-## 给主应用导出配置
+## 主站只读 API
 
 ```bash
-curl -fsSL -H "Authorization: Bearer $CONFIG_EXPORT_TOKEN" \
-  https://<admin 域名>/api/settings/export > .env.production
+curl -fsSL -X POST \
+  -H "Authorization: Bearer $MAIN_SITE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"operation":"activities.list","input":{"limit":1}}' \
+  https://<admin 域名>/api/main-site/query
 ```
 
-网页里也可以导入/导出 `.env` 文本。
+主站不再接收配置导出，也不需要 Turso 连接信息；配置面板里的导入/导出仅用于人工运维。
 
 ## 部署注意
 
