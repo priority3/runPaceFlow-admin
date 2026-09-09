@@ -328,6 +328,20 @@ export const raceGoals = sqliteTable('race_goals', {
     .default(sql`(unixepoch())`),
 })
 
+/** 用户未来参赛计划与用户原话证据；由 admin 作为事实库 owner 保存。 */
+export const racePlans = sqliteTable('race_plans', {
+  id: text('id').primaryKey(),
+  goalId: text('goal_id').references(() => raceGoals.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  raceDate: text('race_date'),
+  city: text('city'),
+  distanceMeters: real('distance_meters'),
+  status: text('status').notNull(),
+  evidenceJson: text('evidence_json').notNull(),
+  researchJson: text('research_json'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+})
+
 export const healthDailyMetrics = sqliteTable('health_daily_metrics', {
   id: text('id').primaryKey(),
   date: text('date').notNull(),
@@ -542,6 +556,8 @@ export type NewFriendDiaryEntry = typeof friendDiaryEntries.$inferInsert
 
 export type RaceGoal = typeof raceGoals.$inferSelect
 export type NewRaceGoal = typeof raceGoals.$inferInsert
+export type RacePlan = typeof racePlans.$inferSelect
+export type NewRacePlan = typeof racePlans.$inferInsert
 
 export type HealthDailyMetric = typeof healthDailyMetrics.$inferSelect
 export type NewHealthDailyMetric = typeof healthDailyMetrics.$inferInsert

@@ -332,6 +332,18 @@ async function ensureActivitiesSchema(client: Client) {
         created_at integer DEFAULT (unixepoch()) NOT NULL,
         updated_at integer DEFAULT (unixepoch()) NOT NULL
       )`,
+      `CREATE TABLE IF NOT EXISTS race_plans (
+        id text PRIMARY KEY NOT NULL,
+        goal_id text REFERENCES race_goals(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        race_date text,
+        city text,
+        distance_meters real,
+        status text NOT NULL,
+        evidence_json text NOT NULL,
+        research_json text,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
       `CREATE TABLE IF NOT EXISTS health_daily_metrics (
         id text PRIMARY KEY NOT NULL,
         date text NOT NULL,
@@ -534,6 +546,7 @@ async function ensureActivitiesSchema(client: Client) {
   await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_events_idempotency ON memory_events(idempotency_key)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_friend_diary_entries_period ON friend_diary_entries(period_start, period_end)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_race_goals_status_race_date ON race_goals(status, race_date)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_race_plans_goal_id ON race_plans(goal_id)')
   await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_health_daily_metrics_date_source ON health_daily_metrics(date, source)')
   await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_strava_events_unique ON strava_events(idempotency_key)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_strava_events_status_retry ON strava_events(status, next_retry_at, created_at)')

@@ -155,6 +155,39 @@ export function withMainSiteAuth<TContext = unknown>(
   }
 }
 
+/** pr-agent 写入结构化赛事/记忆数据的服务端到服务端通道。 */
+export function withPrAgentDataAuth<TContext = unknown>(handler: RouteHandler<TContext>): RouteHandler<TContext> {
+  return async (request: Request, context?: TContext) => {
+    try {
+      const expectedToken = process.env.PR_AGENT_DATA_TOKEN || ''
+      const header = request.headers.get('authorization') ?? ''
+      const providedToken = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+      if (!expectedToken || !providedToken || !safeEqual(providedToken, expectedToken)) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      return await handler(request, context)
+    } catch (error) {
+      return internalError(request, error)
+    }
+  }
+}
+
+export function withPrAgentDataAuthParams<P>(
+  handler: (request: Request, context: { params: Promise<P> }) => Promise<Response | NextResponse>,
+) {
+  return async (request: Request, context: { params: Promise<P> }): Promise<Response | NextResponse> => {
+    try {
+      const expectedToken = process.env.PR_AGENT_DATA_TOKEN || ''
+      const header = request.headers.get('authorization') ?? ''
+      const providedToken = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+      if (!expectedToken || !providedToken || !safeEqual(providedToken, expectedToken)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return await handler(request, context)
+    } catch (error) {
+      return internalError(request, error)
+    }
+  }
+}
+
 /**
  * Auth wrapper for DYNAMIC route segments (e.g. `[id]`, `[runId]`).
  *
