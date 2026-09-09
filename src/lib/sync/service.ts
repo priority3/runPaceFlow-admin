@@ -21,6 +21,10 @@ import { cleanupRaceMatcher, initRaceMatcher } from './race-matcher'
 // 与 pr-agent 的 ingest/service.ts 保持一致的两值集合。
 export type SyncSource = 'strava' | 'keep'
 
+// Keep 的活动列表可能在上传后延迟出现在分页结果中。增量同步向前重叠一段时间，
+// 让后续轮次仍会重新检查最近活动；sourceId 去重保证不会重复写入数据库。
+const INCREMENTAL_OVERLAP_SECONDS = 3 * 24 * 60 * 60
+
 /**
  * 同步选项
  */
@@ -127,8 +131,10 @@ export async function performSync(options: SyncOptions): Promise<SyncResult> {
       throw new Error(`${source} service is not available`)
     }
 
-    // Reason: 真增量同步 —— 查库内该 source 最新活动的 startTime 作为 after 游标,
-    // 只拉游标之后的新活动。库空(首次)或 fullSync 时不传游标,退化为全量拉 limit 条。
+    // Reason: 增量同步以库内该 source 每种运动的最新 startTime 为基准,但保留重叠窗口。
+    // Keep 的活动列表可能晚于实际上传时间才可见;若严格从 latest+1 秒开始,延迟出现的
+    // 活动会被永久跳过。重叠窗口内的旧记录由 sourceId 去重,不会重复写入。
+    // 库空(首次)或 fullSync 时不传游标,退化为全量拉 limit 条。
     //
     // 游标按 (source, type) 分别算:一个源可能同时供多种运动(Keep 既有跑步又有骑行),
     // 它们各自的最新时间不同。若只用 source 级的单一 max(startTime),较新的那类会把游标
@@ -148,12 +154,14 @@ export async function performSync(options: SyncOptions): Promise<SyncResult> {
       for (const row of latestPerType) {
         if (!row.startTime || !row.type) continue
         // 已按 startTime 降序,每个 type 首次出现即为其最新
-        if (!seen.has(row.type)) seen.set(row.type, Math.floor(row.startTime.getTime() / 1000) + 1)
+        if (!seen.has(row.type)) {
+          const latest = Math.floor(row.startTime.getTime() / 1000)
+          seen.set(row.type, Math.max(0, latest - INCREMENTAL_OVERLAP_SECONDS))
+        }
       }
 
       if (seen.size > 0) {
         afterByType = Object.fromEntries(seen)
-        // +1 秒避免把最新那条自己又拉回来(seen 里已含 +1)
         after = Math.min(...seen.values())
         const desc0 = [...seen.entries()]
           .map(([t, v]) => `${t}=${new Date(v * 1000).toISOString()}`)
