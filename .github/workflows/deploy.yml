@@ -2,18 +2,19 @@ name: deploy
 
 # main 有推送 → 自动部署到服务器。
 #
-# 机制:GitHub runner 构建镜像并推到 GHCR,服务器只负责 `docker compose pull` + 重启。
+# 机制:GitHub runner 构建镜像,经 ssh 管道直传到服务器 `docker load`,再重启容器。
+# 不经过任何 registry。与 pr-agent 仓的部署方式一致(那边 09-07 起就这么跑)。
 #
-# 为什么不在服务器上现场构建(2026-09-03 改):服务器拉 npm 单个包是好的(实测 0.6s/200),
-# 但 `bun install` 几百个包并发时会被掐断,构建时好时坏。拉镜像是少量大层的顺序下载,
-# 正好避开这个毛病;而且构建挪到 runner 后,构建失败在 GitHub 这一步就红,不会出现
-# 「workflow 绿了但线上还是旧代码」——那正是 PrAccessCard 那次静默没上线的原因。
+# 为什么不用 GHCR(2026-09-28 改):服务器在上海,拉 GHCR 镜像分两段 ——
+#   ghcr.io 本身(认证 + manifest)  实测 0.59s / HTTP 200,是好的
+#   镜像层 → 307 跳到 pkg-containers.githubusercontent.com  实测 40 KB/s,30 秒下不完 3.6 MB
+# docker pull 又没有超时,于是 CI 就一直挂在「拉取镜像」那步不动。南大镜像站同一层是
+# 13 MB/s,但本仓镜像是私有的,走它等于把 GitHub token 交给第三方,不采用。
 #
-# 服务器不持有任何长期 registry 凭据:用本次 job 的 GITHUB_TOKEN 临时登录,拉完立刻
-# logout,token 随 job 结束失效。
+# 为什么不在服务器上现场构建:bun install 几百个包并发下载时好时坏,且一次要 7 分钟。
 #
-# 为什么仍然 rsync 源码:服务器上的 docker-compose.yml 引用了仓库里的辅助文件
-# (备份脚本等),且源码在手边便于排查。它不再是构建来源。
+# 为什么仍然 rsync:服务器的 docker-compose.yml 引用了仓库里的辅助文件,源码在手边
+# 也便于排查。它不再是构建来源。
 on:
   push:
     branches: [main]
@@ -21,10 +22,12 @@ on:
 
 concurrency:
   group: deploy-runpaceflow-admin
-  cancel-in-progress: false # 部署不可中断:半路取消会留下拉到一半的镜像
+  cancel-in-progress: false # 部署不可中断:半路取消会留下传到一半的镜像
 
 env:
-  IMAGE: ghcr.io/${{ github.repository }}
+  # 本地 tag(不进任何 registry);服务器 compose 用同名引用 + pull_policy: never,
+  # 保证 compose 永远不会自作主张去拉取(一拉就又卡死)。
+  IMAGE: runpaceflow-admin:latest
 
 jobs:
   # 先复用 checks:构建不过的东西不该上线。
@@ -36,30 +39,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # 推镜像到 GHCR
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: 登录 GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # 镜像名必须全小写(GHCR 规则),而仓库名带大写字母。
-      - name: 规范化镜像名
-        run: echo "IMAGE=$(echo '${{ env.IMAGE }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
-
-      - name: 构建并推送镜像
+      - name: 构建镜像
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ github.sha }}
-          # GitHub Actions 缓存:未变的层不重建,后续部署只推应用代码那一层。
+          push: false
+          load: true # 装进 runner 本地 daemon,下一步 docker save 导出
+          tags: ${{ env.IMAGE }}
+          # GitHub Actions 缓存:未变的层不重建。
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -80,7 +72,6 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # 不再是构建来源(镜像在 runner 上建),但 compose 引用的辅助文件仍需保持最新。
         # --delete 清掉服务器上已从仓库删除的文件。排除项是「服务器独有、仓库不该覆盖」的:
         #   .env / docker-compose.yml —— 密钥与本地拓扑(外部卷、host 网络、phoenix 依赖)
         #   data/ —— admin.db 与上传目录
@@ -97,28 +88,52 @@ jobs:
             --exclude '.next' \
             ./ "$USER@$HOST:/opt/runPaceFlow-admin/"
 
-      - name: 拉取镜像并启动
+      - name: 传输镜像到服务器
+        # 硬上限:3 次 × 10 分钟 + 余量。不设的话 job 默认能挂 6 小时。
+        timeout-minutes: 35
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-          REGISTRY_USER: ${{ github.actor }}
-          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # set -o pipefail 不能少:此前 `docker compose ... | tail -20` 让 shell 取了 tail
-        # 的退出码,构建失败照样是绿的。
+        # 镜像经 ssh 管道直传,不落盘、不经过任何 registry。
         #
-        # heredoc 刻意**不加引号**:让 token 在 runner 这边展开进 stdin 流,而不是作为
-        # ssh 的命令行参数 —— 后者会短暂出现在服务器的 ps 里。脚本内没有其他 $ 变量,
-        # 所以本地展开不会误伤(新增变量时务必转义)。
+        # Reason: 这条链路通常很快,但会偶发卡死 —— pr-agent 同样的传输两次各 23 秒,
+        # 中间一次却挂了整整 3 小时(09-09 12:28 → 15:28)。所以单次限时,卡住就杀掉重连:
+        # 新的 TCP 连接往往能拿到正常速度。
+        #   单次 600s:本仓 gzip 后约 126 MB,正常约 25 秒;即使按见过的最慢「仍在动」的
+        #              0.4 MB/s 也只要 5 分钟。超过 10 分钟就当它卡死了。
+        #   ServerAlive:15 秒一次心跳、连丢 4 次断开,死连接一分钟内就能发现,
+        #              不必等满 10 分钟。
+        #   docker load 读到截断的流会报 unexpected EOF 且不打 tag,重试是安全的。
+        #
+        # gzip -1:docker save 导出的是未压缩层,瓶颈在带宽不在 CPU,-1 与 -9 的体积差
+        # 远小于耗时差。
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<REMOTE
+          SSH="ssh -i $HOME/.ssh/deploy -p $PORT -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+          for attempt in 1 2 3; do
+            echo "第 $attempt 次传输…"
+            if timeout 600 bash -o pipefail -c \
+                 "docker save '$IMAGE' | gzip -1 | $SSH '$USER@$HOST' 'gunzip | docker load'"; then
+              echo "传输成功(第 $attempt 次)"
+              exit 0
+            fi
+            echo "::warning::第 $attempt 次传输失败或超时(>600s),重连重试"
+          done
+          echo "::error::3 次传输都没成功"
+          exit 1
+
+      - name: 启动
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        # compose 会比较镜像 ID,load 进来的新镜像与运行中的不同就重建容器。
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /opt/runPaceFlow-admin
-          echo '$REGISTRY_TOKEN' | docker login ghcr.io -u '$REGISTRY_USER' --password-stdin
-          # 无论后续成败都登出:服务器不该留下任何 registry 凭据
-          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
-          docker compose pull runpaceflow-admin
           docker compose up -d runpaceflow-admin
           docker image prune -f --filter 'until=168h' >/dev/null 2>&1 || true
           REMOTE
