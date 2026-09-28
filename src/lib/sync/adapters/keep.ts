@@ -239,7 +239,7 @@ export class KeepAdapter implements SyncAdapter {
       if (hasGeo && !isTreadmill) {
         const points = this.decode(d.geoPoints as string, true)
         if (Array.isArray(points) && isRealTrack(points as KeepPoint[])) {
-          gpxData = pointsToGPX(points as KeepPoint[], startMs, title)
+          gpxData = pointsToGPX(points as KeepPoint[], startMs, endMs, title)
         }
       }
     } catch (error) {
@@ -385,20 +385,58 @@ function isRealTrack(points: KeepPoint[]): boolean {
   return valid.some(p => p.latitude !== first.latitude || p.longitude !== first.longitude)
 }
 
-/** Keep 解码后的轨迹点 → 标准 GPX(坐标为 GCJ-02,仅用于测距/分段,不做地图叠加)。 */
-function pointsToGPX(points: KeepPoint[], startMs: number, name: string): string | undefined {
-  const trkpts: string[] = []
-  for (const p of points) {
-    if (p.latitude == null || p.longitude == null) continue
-    // timestamp 多为距起点的偏移(秒或毫秒);优先用 unixTimestamp。
-    const t = p.unixTimestamp != null
-      ? new Date(p.unixTimestamp).toISOString()
-      : p.timestamp != null
-        ? new Date(startMs + (p.timestamp < 1e6 ? p.timestamp * 1000 : p.timestamp)).toISOString()
-        : new Date(startMs).toISOString()
-    const ele = p.altitude != null ? `<ele>${p.altitude}</ele>` : ''
-    trkpts.push(`<trkpt lat="${p.latitude}" lon="${p.longitude}">${ele}<time>${t}</time></trkpt>`)
+/** 超过这个值(分秒,= 100 小时)的 timestamp 视为绝对时间而非距起点的偏移。 */
+const DECISECOND_ABSOLUTE_THRESHOLD = 3_600_000
+
+/**
+ * 逐点时间(epoch 毫秒)。以 timestamp 为准:距起点的偏移,单位分秒(0.1 秒)。
+ *
+ * Reason: 09-28 用 probe diagnostics 拿 Keep 原始点实测(跑步、骑行共 4 条样本):
+ *   - unixTimestamp 在整条记录里几乎不变(09-02 骑行 4497 个点只跨 27 毫秒),是记录保存时刻,
+ *     不是逐点时间。旧实现优先用它,所有点挤在同一瞬间,每公里时长全成了 0 ——
+ *     迁移到 admin 之后同步的 Keep 活动(骑行 9 条中 7 条、跑步 2 条)都中招。
+ *   - timestamp = currentTotalDuration × 10;末点 ×0.1s 与 endTime − startTime 的误差都在
+ *     几秒内。与参考实现 running_page 的结论一致;它提到的新格式(超过 100 小时即为绝对时间)
+ *     一并兼容。
+ * 首点常缺 timestamp,按 0 处理;中途缺失沿用上一个点。
+ * 换算出的首尾跨度必须与 Keep 汇总的起止时间吻合,否则返回 null ——
+ * 宁可不给时间(分段会退回按总时长平均),也不给错误的时间。
+ */
+function pointTimesMs(points: KeepPoint[], startMs: number, endMs: number): number[] | null {
+  const raw = points.map(p => (typeof p.timestamp === 'number' && Number.isFinite(p.timestamp) ? p.timestamp : null))
+  const absolute = raw.some(v => v != null && v > DECISECOND_ABSOLUTE_THRESHOLD)
+  // 绝对模式下,不像绝对时间的值(如首点的 0)当作缺失。
+  const usable = (v: number | null): v is number => v != null && (!absolute || v > DECISECOND_ABSOLUTE_THRESHOLD)
+  const first = raw.find(usable)
+  if (first == null) return null
+
+  let current = absolute ? first : 0
+  const times = raw.map(v => {
+    if (usable(v)) current = v
+    return (absolute ? 0 : startMs) + current * 100
+  })
+
+  if (endMs > startMs) {
+    const span = times[times.length - 1] - times[0]
+    const expected = endMs - startMs
+    if (Math.abs(span - expected) > Math.max(60_000, expected * 0.1)) {
+      console.warn(`[keep] 轨迹时间跨度 ${Math.round(span / 1000)}s 与记录时长 ${Math.round(expected / 1000)}s 不符,不写逐点时间`)
+      return null
+    }
   }
+  return times
+}
+
+/** Keep 解码后的轨迹点 → 标准 GPX(坐标为 GCJ-02,仅用于测距/分段,不做地图叠加)。 */
+function pointsToGPX(points: KeepPoint[], startMs: number, endMs: number, name: string): string | undefined {
+  const valid = points.filter(p => p.latitude != null && p.longitude != null)
+  const times = pointTimesMs(valid, startMs, endMs)
+  const trkpts: string[] = []
+  valid.forEach((p, i) => {
+    const t = times ? `<time>${new Date(times[i]).toISOString()}</time>` : ''
+    const ele = p.altitude != null ? `<ele>${p.altitude}</ele>` : ''
+    trkpts.push(`<trkpt lat="${p.latitude}" lon="${p.longitude}">${ele}${t}</trkpt>`)
+  })
   if (!trkpts.length) return undefined
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="runPaceFlow-keep" xmlns="http://www.topografix.com/GPX/1/1">
