@@ -264,6 +264,94 @@ export class KeepAdapter implements SyncAdapter {
     }
   }
 
+  /**
+   * probe 诊断:Keep 的原始列表条目 + 原始轨迹点样本。只读,不写库,不做任何过滤。
+   *
+   * Reason: 有两类问题只能从原始返回判断,而库里只存了加工后的结果 ——
+   *   1) 列表:listLogEntries 会静默丢掉 isDoubtful 的条目,没有日志。Keep 里明明有、
+   *      同步却拉不到的记录,要看原始列表才知道是被过滤了还是压根不在列表里。
+   *   2) 轨迹时间戳:pointsToGPX 按「秒或毫秒」猜单位。库里只有生成后的 GPX,原始点已丢,
+   *      要确认 timestamp / unixTimestamp 的真实含义,只能重新拉一次看原值。
+   * 点对象整体返回、不挑字段,免得再对字段名做一次猜测。
+   */
+  async probeDiagnostics(opts: { entriesPerSport?: number; samplesPerSport?: number } = {}) {
+    const entriesPerSport = opts.entriesPerSport ?? 8
+    const samplesPerSport = opts.samplesPerSport ?? 3
+    const token = await this.login()
+    const result: Array<Record<string, unknown>> = []
+
+    for (const sport of KEEP_SPORTS) {
+      const res = await fetch(`${LIST_API}?dateUnit=all&type=${sport.listType}&lastDate=0`, {
+        headers: this.authHeaders(token),
+      })
+      if (!res.ok) {
+        result.push({ type: sport.type, error: `列表 HTTP ${res.status}` })
+        continue
+      }
+      const json = (await res.json()) as {
+        data?: { records?: Array<{ logs?: Array<{ stats?: Record<string, unknown> }> }> }
+      }
+      const entries: Array<Record<string, unknown>> = []
+      let statsKeys: string[] = []
+      for (const rec of json?.data?.records ?? []) {
+        for (const log of rec.logs ?? []) {
+          const st = log?.stats ?? {}
+          if (!statsKeys.length) statsKeys = Object.keys(st)
+          entries.push({
+            id: st.id,
+            name: st.name,
+            isDoubtful: st.isDoubtful ?? null,
+            startTime: st.startTime ?? null,
+            endTime: st.endTime ?? null,
+            doneDate: st.doneDate ?? null,
+          })
+        }
+      }
+
+      const samples: Array<Record<string, unknown>> = []
+      for (const entry of entries.slice(0, samplesPerSport)) {
+        try {
+          const detail = await fetch(`${LOG_API_BASE}/${sport.logPath}/${entry.id}`, {
+            headers: this.authHeaders(token),
+          })
+          if (!detail.ok) {
+            samples.push({ id: entry.id, error: `详情 HTTP ${detail.status}` })
+            continue
+          }
+          const dj = (await detail.json()) as { data?: Record<string, unknown> }
+          const d = (dj?.data ?? dj) as Record<string, unknown>
+          const points =
+            typeof d.geoPoints === 'string' && d.geoPoints.length > 0
+              ? (this.decode(d.geoPoints, true) as unknown[])
+              : []
+          samples.push({
+            id: entry.id,
+            startTime: d.startTime,
+            endTime: d.endTime,
+            duration: d.duration,
+            subtype: d.subtype ?? null,
+            pointCount: points.length,
+            first: points.slice(0, 2),
+            last: points.at(-1) ?? null,
+          })
+        } catch (error) {
+          samples.push({ id: entry.id, error: (error as Error).message })
+        }
+      }
+
+      result.push({
+        type: sport.type,
+        listType: sport.listType,
+        totalEntries: entries.length,
+        doubtfulEntries: entries.filter(e => e.isDoubtful).length,
+        statsKeys,
+        entries: entries.slice(0, entriesPerSport),
+        samples,
+      })
+    }
+    return result
+  }
+
   async downloadGPX(activityId: string): Promise<string> {
     const activity = await this.getActivityDetail(activityId)
     return activity.gpxData ?? ''

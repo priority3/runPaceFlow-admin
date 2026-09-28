@@ -5,6 +5,7 @@
  * Body: { limit?: number, fullSync?: boolean, probe?: boolean }
  *
  * - probe=true:干跑,不写库,直接拉最近几条返回映射后的字段(校验单位/轨迹是否完整)。
+ *   再加 diagnostics=true 时附带 Keep 原始列表条目与原始轨迹点样本,用于排查漏同步与时间戳单位。
  *   可在 body 传 mobile/password 用**未保存的草稿凭据**测试(配置页「测试连接」就是这么用的:
  *   先测通再保存,而不是把可能错的凭据先写进库);两者缺省时回落已保存的配置。
  * - 否则:performSync 增量同步 Keep → 写活动库 → 触发 PR 跑后复盘。
@@ -22,7 +23,7 @@ export const dynamic = 'force-dynamic'
 // 鉴权:admin 会话(面板 / 配置页测试连接)或 Bearer SYNC_TRIGGER_TOKEN
 // (pr-agent 在对话里说「同步一下」时打过来,服务端到服务端拿不到会话 cookie)。
 export const POST = withSyncTriggerAuth(async (request) => {
-  let body: { limit?: number; fullSync?: boolean; probe?: boolean; mobile?: string; password?: string } = {}
+  let body: { limit?: number; fullSync?: boolean; probe?: boolean; diagnostics?: boolean; mobile?: string; password?: string } = {}
   try {
     body = await request.json()
   } catch {
@@ -52,8 +53,12 @@ export const POST = withSyncTriggerAuth(async (request) => {
     }
     const limit = typeof body.limit === 'number' ? body.limit : 3
     const acts = await adapter.getActivities({ limit })
+    // diagnostics:额外返回 Keep 的原始列表与轨迹点样本(见 KeepAdapter.probeDiagnostics)。
+    // 显式请求才跑:它要多拉几次详情,常规的「测试连接」不需要。
+    const diagnostics = body.diagnostics === true ? await adapter.probeDiagnostics() : undefined
     return NextResponse.json({
       probe: true,
+      diagnostics,
       count: acts.length,
       activities: acts.map(a => ({
         id: a.id,
