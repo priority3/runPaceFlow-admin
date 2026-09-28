@@ -6,6 +6,9 @@ import { startScheduler } from '@/lib/scheduler'
 export async function GET() {
   try {
     await ensureSchema()
+    // 调度器的正式启动点已挪到 instrumentation.ts(进程启动即注册)。这里保留为兜底:
+    // startScheduler 自带 schedulerStarted 幂等,重复调用是空操作;万一 instrumentation
+    // 那次因库未就绪而失败,探活还能把它补起来。
     startScheduler()
 
     const db = getDb()
