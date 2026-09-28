@@ -172,11 +172,14 @@ export async function syncActivity(rawActivity: RawActivity): Promise<string> {
     })
 
     // 生成分段数据
-    if (parsedGPX && parsedGPX.tracks.length > 0) {
-      await generateSplits(activityId, parsedGPX.tracks[0].points)
-    } else if (distance > 0 && duration > 0) {
-      // 如果没有 GPX 数据，根据总距离和时长生成平均分段
-      await generateAverageSplits(activityId, distance, duration, averagePace)
+    const plan = planSplits(activityId, parsedGPX?.tracks[0]?.points ?? null, distance, duration, averagePace)
+    if (plan.records.length > 0) {
+      await db.insert(splits).values(plan.records)
+      console.info(`Generated ${plan.records.length} ${plan.mode} splits for activity ${activityId}`)
+    }
+    if (plan.bestPace != null) {
+      await db.update(activities).set({ bestPace: plan.bestPace }).where(eq(activities.id, activityId))
+      console.info(`Updated bestPace for activity ${activityId}: ${plan.bestPace.toFixed(1)} sec/km`)
     }
 
     console.info(`Successfully synced activity ${activityId} (source: ${rawActivity.source})`)
@@ -207,28 +210,56 @@ export async function syncActivities(rawActivities: RawActivity[]): Promise<stri
   return activityIds
 }
 
+type TrackPoint = { lat: number; lon: number; time?: Date; ele?: number; hr?: number }
+type SplitRecord = typeof splits.$inferInsert
+
+/** 分段计划:纯计算,不落库。写库留给调用方,这样才能放进事务(见 rebuild.ts)。 */
+export interface SplitPlan {
+  mode: 'gpx' | 'average' | 'none'
+  records: SplitRecord[]
+  /** 仅按轨迹计算时给出:配速数值最小的分段。 */
+  bestPace?: number
+}
+
+/** 首尾两点都有时间、且跨度大于 0,才能按点计算每公里时长。 */
+function hasUsableTimes(points: TrackPoint[]): boolean {
+  const first = points[0]?.time?.getTime()
+  const last = points.at(-1)?.time?.getTime()
+  return first != null && last != null && Number.isFinite(first) && Number.isFinite(last) && last > first
+}
+
+/**
+ * 决定一条活动的分段:有带时间的轨迹就按点切公里,否则按总距离/总时长平均。
+ *
+ * Reason: 以前只要解析出 GPX 就按点算,不管点有没有时间 —— Keep 轨迹时间戳错误时
+ * (所有点挤在同一瞬间),每公里时长全是 0、配速是 0.002 这种无意义的数,bestPace 也跟着坏。
+ * 没有可用时间时退回平均分段,至少给出的是真实的平均值。
+ */
+export function planSplits(
+  activityId: string,
+  points: TrackPoint[] | null,
+  distance: number,
+  duration: number,
+  averagePace: number,
+): SplitPlan {
+  if (points && points.length >= 2 && hasUsableTimes(points)) {
+    const records = buildGpxSplits(activityId, points)
+    const paces = records.map(r => r.pace).filter((pace): pace is number => pace != null && pace > 0)
+    return { mode: 'gpx', records, bestPace: paces.length > 0 ? Math.min(...paces) : undefined }
+  }
+  if (distance > 0 && duration > 0) {
+    return { mode: 'average', records: buildAverageSplits(activityId, distance, duration, averagePace) }
+  }
+  return { mode: 'none', records: [] }
+}
+
 /**
  * 根据 GPX 轨迹点生成分段数据
  * @param activityId 活动 ID
  * @param points GPX 轨迹点
  */
-async function generateSplits(
-  activityId: string,
-  points: Array<{ lat: number; lon: number; time?: Date; ele?: number; hr?: number }>,
-): Promise<void> {
-  if (points.length < 2) return
-  const db = await getDb()
-
-  const splitRecords: Array<{
-    id: string
-    activityId: string
-    kilometer: number
-    duration: number
-    pace: number
-    distance: number
-    elevationGain?: number
-    averageHeartRate?: number
-  }> = []
+function buildGpxSplits(activityId: string, points: TrackPoint[]): SplitRecord[] {
+  const splitRecords: SplitRecord[] = []
 
   let kmCount = 0
   let kmStartIndex = 0
@@ -280,39 +311,26 @@ async function generateSplits(
     }
   }
 
-  // 插入分段数据
-  if (splitRecords.length > 0) {
-    await db.insert(splits).values(splitRecords)
-    console.info(`Generated ${splitRecords.length} splits for activity ${activityId}`)
-
-    // 计算最佳配速（配速数值最小的分段）并更新活动记录
-    const validPaces = splitRecords.map((r) => r.pace).filter((p) => p > 0)
-    if (validPaces.length > 0) {
-      const bestPace = Math.min(...validPaces)
-      await db.update(activities).set({ bestPace }).where(eq(activities.id, activityId))
-      console.info(`Updated bestPace for activity ${activityId}: ${bestPace.toFixed(1)} sec/km`)
-    }
-  }
+  return splitRecords
 }
 
 /**
- * 生成平均分段数据（无 GPX 数据时使用）
+ * 生成平均分段数据（无可用轨迹时间时使用）
  * @param activityId 活动 ID
  * @param totalDistance 总距离（米）
  * @param totalDuration 总时长（秒）
  * @param averagePace 平均配速（秒/公里）
  */
-async function generateAverageSplits(
+function buildAverageSplits(
   activityId: string,
   totalDistance: number,
   totalDuration: number,
   averagePace: number,
-): Promise<void> {
+): SplitRecord[] {
   const kmCount = Math.floor(totalDistance / 1000)
-  if (kmCount === 0) return
-  const db = await getDb()
+  if (kmCount === 0) return []
 
-  const splitRecords = []
+  const splitRecords: SplitRecord[] = []
   const avgSplitDuration = Math.round(totalDuration / (totalDistance / 1000))
 
   for (let i = 1; i <= kmCount; i++) {
@@ -325,11 +343,7 @@ async function generateAverageSplits(
       distance: 1000,
     })
   }
-
-  if (splitRecords.length > 0) {
-    await db.insert(splits).values(splitRecords)
-    console.info(`Generated ${splitRecords.length} average splits for activity ${activityId}`)
-  }
+  return splitRecords
 }
 
 /**
