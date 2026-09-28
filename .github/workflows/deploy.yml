@@ -2,19 +2,21 @@ name: deploy
 
 # main 有推送 → 自动部署到服务器。
 #
-# 机制:GitHub runner 构建镜像,经 ssh 管道直传到服务器 `docker load`,再重启容器。
-# 不经过任何 registry。与 pr-agent 仓的部署方式一致(那边 09-07 起就这么跑)。
+# 机制:rsync 源码到服务器,在服务器上 `docker compose build`(依赖走国内 npm 镜像),再重启容器。
 #
-# 为什么不用 GHCR(2026-09-28 改):服务器在上海,拉 GHCR 镜像分两段 ——
-#   ghcr.io 本身(认证 + manifest)  实测 0.59s / HTTP 200,是好的
-#   镜像层 → 307 跳到 pkg-containers.githubusercontent.com  实测 40 KB/s,30 秒下不完 3.6 MB
-# docker pull 又没有超时,于是 CI 就一直挂在「拉取镜像」那步不动。南大镜像站同一层是
-# 13 MB/s,但本仓镜像是私有的,走它等于把 GitHub token 交给第三方,不采用。
+# 为什么不在 GitHub 上构建再把镜像送过去(2026-09-28 改,先后试过两种都放弃了):
+# 服务器在上海,GitHub(境外)↔ 服务器这条跨境链路白天严重拥塞 —— 09-28 实测:
+#   GHCR 拉取:镜像层 307 到 pkg-containers.githubusercontent.com,40 KB/s
+#   ssh 直传 docker save:14~31 KB/s,126 MB 的镜像要一两个小时
+# pr-agent 同样的 ssh 直传只在北京时间凌晨 3 点左右快(23 秒),白天一次挂了 3 小时。
+# 两种方式走的是同一条跨境链路,换传输方式没用。
 #
-# 为什么不在服务器上现场构建:bun install 几百个包并发下载时好时坏,且一次要 7 分钟。
+# 在服务器上构建,大流量就全留在国内了:基础镜像经 daemon.json 里的 Docker Hub 镜像源拉取,
+# npm 依赖经 NPM_MIRROR 走 npmmirror(实测 437 个包 17 秒,官方源同一时段 777 秒)。
+# 跨境的只剩 rsync 的源码增量,体量很小。
 #
-# 为什么仍然 rsync:服务器的 docker-compose.yml 引用了仓库里的辅助文件,源码在手边
-# 也便于排查。它不再是构建来源。
+# 为什么用 rsync 而不是在服务器上 git pull:服务器 /opt/runPaceFlow-admin 的 git index
+# 已损坏(fatal: index file smaller than expected),且那边也不该持有 GitHub 凭据。
 on:
   push:
     branches: [main]
@@ -22,12 +24,7 @@ on:
 
 concurrency:
   group: deploy-runpaceflow-admin
-  cancel-in-progress: false # 部署不可中断:半路取消会留下传到一半的镜像
-
-env:
-  # 本地 tag(不进任何 registry);服务器 compose 用同名引用 + pull_policy: never,
-  # 保证 compose 永远不会自作主张去拉取(一拉就又卡死)。
-  IMAGE: runpaceflow-admin:latest
+  cancel-in-progress: false # 部署不可中断:半路取消会留下构建到一半的镜像
 
 jobs:
   # 先复用 checks:构建不过的东西不该上线。
@@ -41,19 +38,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: 构建镜像
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          load: true # 装进 runner 本地 daemon,下一步 docker save 导出
-          tags: ${{ env.IMAGE }}
-          # GitHub Actions 缓存:未变的层不重建。
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: 准备 SSH
         env:
@@ -72,8 +56,9 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # --delete 清掉服务器上已从仓库删除的文件。排除项是「服务器独有、仓库不该覆盖」的:
-        #   .env / docker-compose.yml —— 密钥与本地拓扑(外部卷、host 网络、phoenix 依赖)
+        # 服务器上的构建以这份源码为准。--delete 清掉仓库已删除的文件。排除项是
+        # 「服务器独有、仓库不该覆盖」的:
+        #   .env / docker-compose.yml —— 密钥与本地拓扑(外部卷、host 网络、构建参数)
         #   data/ —— admin.db 与上传目录
         #   .git —— 那边的 index 已损坏,别动它
         run: |
@@ -88,47 +73,39 @@ jobs:
             --exclude '.next' \
             ./ "$USER@$HOST:/opt/runPaceFlow-admin/"
 
-      - name: 传输镜像到服务器
-        # 硬上限:3 次 × 10 分钟 + 余量。不设的话 job 默认能挂 6 小时。
-        timeout-minutes: 35
+      - name: 服务器上构建镜像
+        # 正常约 3~5 分钟(依赖 17 秒,其余是 next build)。硬上限防止卡住时挂满 6 小时。
+        timeout-minutes: 30
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # 镜像经 ssh 管道直传,不落盘、不经过任何 registry。
-        #
-        # Reason: 这条链路通常很快,但会偶发卡死 —— pr-agent 同样的传输两次各 23 秒,
-        # 中间一次却挂了整整 3 小时(09-09 12:28 → 15:28)。所以单次限时,卡住就杀掉重连:
-        # 新的 TCP 连接往往能拿到正常速度。
-        #   单次 600s:本仓 gzip 后约 126 MB,正常约 25 秒;即使按见过的最慢「仍在动」的
-        #              0.4 MB/s 也只要 5 分钟。超过 10 分钟就当它卡死了。
-        #   ServerAlive:15 秒一次心跳、连丢 4 次断开,死连接一分钟内就能发现,
-        #              不必等满 10 分钟。
-        #   docker load 读到截断的流会报 unexpected EOF 且不打 tag,重试是安全的。
-        #
-        # gzip -1:docker save 导出的是未压缩层,瓶颈在带宽不在 CPU,-1 与 -9 的体积差
-        # 远小于耗时差。
+        # set -o pipefail 不能少:此前 `... 2>&1 | tail -20` 让 shell 取了 tail 的退出码,
+        # 构建失败照样是绿的 —— PrAccessCard 就那样静默漏上线过一次。
         run: |
           set -euo pipefail
-          SSH="ssh -i $HOME/.ssh/deploy -p $PORT -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
-          for attempt in 1 2 3; do
-            echo "第 $attempt 次传输…"
-            if timeout 600 bash -o pipefail -c \
-                 "docker save '$IMAGE' | gzip -1 | $SSH '$USER@$HOST' 'gunzip | docker load'"; then
-              echo "传输成功(第 $attempt 次)"
-              exit 0
-            fi
-            echo "::warning::第 $attempt 次传输失败或超时(>600s),重连重试"
-          done
-          echo "::error::3 次传输都没成功"
-          exit 1
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes -o ServerAliveInterval=30 "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/runPaceFlow-admin
+          # Reason: 服务器 compose 不在仓库里。若它没有 build 配置,compose build 会静默跳过
+          # 该服务,随后 up -d 继续跑旧镜像 —— 部署全绿、线上没变。这里先把它拦下来。
+          docker compose config --format json | python3 -c '
+          import json, sys
+          svc = json.load(sys.stdin)["services"]["runpaceflow-admin"]
+          if "build" not in svc:
+              sys.exit("::error::服务器 docker-compose.yml 的 runpaceflow-admin 缺少 build 配置,拒绝部署")
+          if "NPM_MIRROR" not in (svc["build"].get("args") or {}):
+              print("::warning::未配置 NPM_MIRROR,依赖将走官方源(实测慢 40 倍以上)")
+          '
+          docker compose build runpaceflow-admin 2>&1 | tail -30
+          REMOTE
 
       - name: 启动
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # compose 会比较镜像 ID,load 进来的新镜像与运行中的不同就重建容器。
+        # compose 比较镜像 ID,新构建的与运行中的不同就重建容器。
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
