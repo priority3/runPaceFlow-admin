@@ -6,9 +6,24 @@
 FROM oven/bun:1.3.1 AS builder
 WORKDIR /app
 COPY package.json bun.lock ./
+
+# 可选的 npm 镜像。默认留空 = 官方源,行为与之前完全一致(CI 的 checks 就是这样跑的);
+# 服务器的 docker-compose.yml 传入国内镜像。
+#
+# Reason: bun 1.3.1 对锁文件里 registry 字段为 "" 的条目一律按官方源解析 —— --registry、
+# BUN_CONFIG_REGISTRY、bunfig.toml、.npmrc 四种配置 09-28 逐一实测全部无效。所以只能
+# 在构建时把 "" 就地补成镜像地址(格式与锁文件里已有的镜像条目一致)。只改下载地址:
+#   - 版本不变:--frozen-lockfile 保证锁文件与 package.json 对不上就拒绝安装
+#   - 内容不变:每个条目的 sha512 原样保留,bun 逐个校验,镜像给了不同文件会直接报错
+# 仓库里的 bun.lock 本身不受影响。实测(上海服务器)官方源 429~777s,镜像 17s。
+ARG NPM_MIRROR=
+RUN if [ -n "$NPM_MIRROR" ]; then \
+      sed -i -E 's#\["((@[^/"]+/)?([^@"]+))@([^"]+)", ""#["\1@\4", "'"$NPM_MIRROR"'/\1/-/\3-\4.tgz"#' bun.lock; \
+    fi
+
 # --ignore-scripts: 构建用 node 跑 next,不依赖任何 install 脚本;保留该 flag 也让
 # 构建不受将来新增依赖的 postinstall 影响。
-RUN bun install --ignore-scripts
+RUN bun install --ignore-scripts --frozen-lockfile
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
