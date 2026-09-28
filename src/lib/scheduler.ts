@@ -17,8 +17,20 @@ import { ensureDefaultJobs, listJobs, recordJobRun } from './scheduler-config'
 import { drainStravaEvents } from './strava/events'
 import { performSync } from './sync/service'
 
-let schedulerStarted = false
-let scheduledTasks: cron.ScheduledTask[] = []
+/**
+ * 调度器状态挂在 globalThis 上,而不是模块级变量。
+ *
+ * Reason: Next.js 把 instrumentation.ts 与路由处理函数打进不同的 bundle,本模块会被实例化
+ * 两次、各持一份模块级变量。09-28 把启动点挪到 instrumentation 之后,进程启动注册一套、
+ * 随后第一次请求 /api/health 又注册一套 —— 每个定时任务每次跑两遍(两个同步并发写库);
+ * reloadScheduler(面板改 cron 后由 /api/scheduler 调用)也只能停掉自己那份,另一份继续
+ * 按旧 cron 触发。同一进程里 globalThis 只有一个,两份模块实例经它共享同一份状态。
+ * node-cron 在 serverExternalPackages 里、由 require 缓存保证单例,任一实例创建的任务都能
+ * 被另一实例 stop()。
+ */
+type SchedulerState = { started: boolean; tasks: cron.ScheduledTask[] }
+const globalForScheduler = globalThis as typeof globalThis & { __rpfScheduler?: SchedulerState }
+const state: SchedulerState = (globalForScheduler.__rpfScheduler ??= { started: false, tasks: [] })
 
 // ─── Sync Activities ────────────────────────────────────────────────────────
 
@@ -240,10 +252,10 @@ const JOB_HANDLERS: Record<string, () => Promise<void>> = {
 
 async function setupJobs() {
   // Stop existing tasks
-  for (const task of scheduledTasks) {
+  for (const task of state.tasks) {
     task.stop()
   }
-  scheduledTasks = []
+  state.tasks = []
 
   // Load jobs from database
   const jobs = await listJobs()
@@ -263,14 +275,14 @@ async function setupJobs() {
     }
 
     const task = cron.schedule(job.cronExpression, handler)
-    scheduledTasks.push(task)
+    state.tasks.push(task)
     console.log(`[Scheduler] Registered "${job.name}" with cron: ${job.cronExpression}`)
   }
 }
 
 export async function startScheduler() {
-  if (schedulerStarted) return
-  schedulerStarted = true
+  if (state.started) return
+  state.started = true
 
   await setupJobs()
 
