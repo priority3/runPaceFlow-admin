@@ -52,6 +52,33 @@ const KEEP_AES_IV = Buffer.from('MjM0Njg5MjQzMjkyMDMwMA==', 'base64')
 
 const MAX_LIST_PAGES = 20
 
+/**
+ * 缺口回补窗口:库里缺失、但起始时间在这之内的活动会被补进来。
+ *
+ * Reason: 增量游标(after)原本被用来"丢弃早于游标的活动",可它只是省请求的提示 ——
+ * 一旦库里出现缺口(记录早于游标且从未入库),那条就永远补不回来,而且每轮同步都会白拉
+ * 一次详情再丢掉(2026-10-20 线上就有一条 2557 秒的活动反复被拉、反复被丢)。去重本来就由
+ * shouldFetchDetail 负责,所以这里改成只挡「过久的历史」,不挡近期缺口。
+ *
+ * 取 14 天:实测数据源(手表→Keep)的上传滞后最长约 8 天(190 小时),留一倍余量即可;
+ * 再大会让首次增量多翻几页,回补进来的活动还会成批触发复盘(每条一次模型调用)。
+ */
+const BACKFILL_WINDOW_SECONDS = 14 * 24 * 60 * 60
+
+/**
+ * Keep 的 lastTimestamp 在不同版本里可能是毫秒数、秒数或日期字符串,统一成毫秒。
+ * 不归一化的话 `Math.floor(v/1000) < floor` 会恒为假(字符串→NaN、秒数→太小),
+ * 分页永远翻到 MAX_LIST_PAGES 才停 —— 每晚白白多打十几次列表请求。
+ */
+function normalizeEpochMs(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value < 1e12 ? value * 1000 : value
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
 interface KeepPoint {
   latitude?: number
   longitude?: number
@@ -107,7 +134,7 @@ export class KeepAdapter implements SyncAdapter {
   }
 
   /**
-   * 分页拉取某个运动的日志条目(新→旧);增量时到游标更旧的页就停。
+   * 分页拉取某个运动的日志条目(新→旧);翻到比下限更旧的页就停。
    *
    * Reason: 除了 id 还要把 stats.name 一并带出来 —— **活动名只存在于列表**,
    * 详情接口的返回体里根本没有 name 字段(实测 30 个字段里无 name),
@@ -116,18 +143,29 @@ export class KeepAdapter implements SyncAdapter {
   private async listLogEntries(
     token: string,
     sport: KeepSport,
-    after?: number,
-  ): Promise<Array<{ id: string; name?: string }>> {
-    const entries: Array<{ id: string; name?: string }> = []
+    /** 翻页下限(秒):本页最旧条目已早于它就不再往下翻。undefined = 不限深度(首次/全量)。 */
+    floor?: number,
+  ): Promise<Array<{ id: string; name?: string; startMs?: number }>> {
+    const entries: Array<{ id: string; name?: string; startMs?: number }> = []
     let lastDate = 0
     for (let page = 0; page < MAX_LIST_PAGES; page++) {
       const url = `${LIST_API}?dateUnit=all&type=${sport.listType}&lastDate=${lastDate}`
       const res = await fetch(url, { headers: this.authHeaders(token) })
-      if (!res.ok) break
+      // Reason: 这里原来是 `if (!res.ok) break` —— 列表请求失败会被静默当成「0 条新数据」,
+      // 最后还记成 success,同步真坏了也看不出来(2026-10-20 排查周日活动缺失时踩到)。
+      // 第一页失败 = 这轮什么都拉不到 → 直接抛,让本次同步记成 failed 并留下错误原文;
+      // 后续页失败则保留已拿到的较新条目,只告警。
+      if (!res.ok) {
+        if (page === 0) throw new Error(`Keep ${sport.label}列表失败: HTTP ${res.status}`)
+        console.warn(`[keep] ${sport.label}列表第 ${page + 1} 页失败(HTTP ${res.status}),保留已取到的 ${entries.length} 条`)
+        break
+      }
       const json = (await res.json()) as {
         data?: {
-          records?: Array<{ logs?: Array<{ stats?: { id?: string; name?: string; isDoubtful?: boolean } }> }>
-          lastTimestamp?: number
+          records?: Array<{
+            logs?: Array<{ stats?: { id?: string; name?: string; isDoubtful?: boolean; startTime?: number } }>
+          }>
+          lastTimestamp?: number | string
         }
       }
       const records = json?.data?.records ?? []
@@ -135,14 +173,19 @@ export class KeepAdapter implements SyncAdapter {
         for (const log of rec.logs ?? []) {
           const stats = log?.stats
           if (stats?.id && !stats.isDoubtful) {
-            entries.push({ id: stats.id, name: typeof stats.name === 'string' ? stats.name : undefined })
+            entries.push({
+              id: stats.id,
+              name: typeof stats.name === 'string' ? stats.name : undefined,
+              // 列表里就带起始时间(毫秒):后面据此在拉详情前挡掉过久的历史,省一次详情请求。
+              startMs: typeof stats.startTime === 'number' ? stats.startTime : undefined,
+            })
           }
         }
       }
-      lastDate = json?.data?.lastTimestamp ?? 0
+      lastDate = normalizeEpochMs(json?.data?.lastTimestamp)
       if (!lastDate) break
-      // 增量:本页最旧一条已早于游标,后续页都更旧 → 停。
-      if (after && Math.floor(lastDate / 1000) < after) break
+      // 分页:本页最旧一条已早于下限,后续页都更旧 → 停(下限=游标与回补窗口中更早的那个)。
+      if (floor && Math.floor(lastDate / 1000) < floor) break
     }
     return entries
   }
@@ -168,16 +211,23 @@ export class KeepAdapter implements SyncAdapter {
       // 这个类型的任何活动 ⇒ 该类型应走全量。绝不能回落到 options.after ——
       // 那是所有类型的游标下界,会把新接入类型(如首次开启的骑行)的全部历史挡在门外。
       const after = options?.afterByType ? options.afterByType[sport.type] : options?.after
-      const entries = await this.listLogEntries(token, sport, after)
+      const windowFloor = Math.floor(Date.now() / 1000) - BACKFILL_WINDOW_SECONDS
+      // 列表深度:首次/全量同步(无游标)不限,保持「尽量多拉」;增量时取「游标」与「回补窗口」
+      // 中更早的那个 —— 这样近期的缺口能扫到,又不会无限往下翻页。
+      const listFloor = after == null ? undefined : Math.min(after, windowFloor)
+      const entries = await this.listLogEntries(token, sport, listFloor)
       // 配额按类型独立:否则先跑的 running 会吃掉全部 limit,骑行一条都进不来。
       let taken = 0
-      for (const { id, name } of entries) {
+      for (const { id, name, startMs } of entries) {
         if (taken >= limit) break
+        // 分页是整页判定,可能多带出一点更老的条目:列表自带起始时间,不必为此拉详情。
+        if (listFloor != null && startMs && Math.floor(startMs / 1000) < listFloor) continue
         // 拉详情前去重:库里已有直接跳过(省请求)。
         if (options?.shouldFetchDetail && !(await options.shouldFetchDetail(id))) continue
         try {
           const activity = await this.getActivityDetail(id, sport, name)
-          if (after && Math.floor(activity.startTime.getTime() / 1000) < after) continue
+          // 这里**不再**按游标丢弃:游标只决定「列表翻多深」,插入只看「库里有没有」。
+          // 否则库里缺失、又早于游标的那条永远补不回来(每轮白拉一次详情再丢掉)。
           collected.push(activity)
           taken++
         } catch (error) {
