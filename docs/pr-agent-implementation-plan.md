@@ -58,7 +58,7 @@
 **要做**:
 1. `src/app/dashboard/components/MemoryPanel.tsx`(新):列出候选/active 记忆 → 确认(→active)/纠正(→archived + 写 `do_not_assume`)/编辑。调现有 `GET /api/pr/memories`、`confirm|archive|PATCH`。
 2. `src/app/dashboard/components/HealthRecoveryPanel.tsx`(新):睡眠/深睡/REM/步数/环境音量趋势(`GET /api/health/daily?limit=14`)。
-3. `src/app/dashboard/components/PrReviewsPanel.tsx`(新):最近反思/复盘列表 + 手动重发微信(`POST /api/activities/reviews/notify` 或每日重触发)。
+3. `src/app/dashboard/components/PrReviewsPanel.tsx`(新):最近反思/复盘列表。（原「手动重发微信」按钮与 `POST /api/activities/reviews/notify` 已于 2026-10 随外发推送能力一并下线，面板现为只读列表。）
 4. 反馈入口:心情/RPE/备注 → `POST /api/activities/feedback`(已接 `extractMemoryPatchesFromFeedback`)。
 5. `DashboardView.tsx`:新增 "PR" 标签页挂上述面板。
 

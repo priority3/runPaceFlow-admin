@@ -8,7 +8,8 @@
  *   再加 diagnostics=true 时附带 Keep 原始列表条目与原始轨迹点样本,用于排查漏同步与时间戳单位。
  *   可在 body 传 mobile/password 用**未保存的草稿凭据**测试(配置页「测试连接」就是这么用的:
  *   先测通再保存,而不是把可能错的凭据先写进库);两者缺省时回落已保存的配置。
- * - 否则:performSync 增量同步 Keep → 写活动库 → 触发 PR 跑后复盘。
+ * - 否则:performSync 增量同步 Keep → 写活动库 → 响应;PR 跑后复盘随后在后台生成
+ *   (不阻塞响应,原因见下面 fire-and-forget 处的注释)。
  */
 import { NextResponse } from 'next/server'
 
@@ -79,16 +80,22 @@ export const POST = withSyncTriggerAuth(async (request) => {
   const limit = typeof body.limit === 'number' ? body.limit : 50
   const fullSync = body.fullSync === true
   const result = await performSync({ source: 'keep', limit, fullSync })
-  const reviews =
-    result.success && result.activityIds.length > 0
-      ? await requestPrReviewBatch(result.activityIds)
-      : { generated: 0, skipped: 0, failed: 0, notified: 0 }
+
+  // Reason: 复盘生成是 LLM 慢活(每条新活动一次调用,还要过评审与可能的重写),而本端点同时
+  // 是对话内「同步一下」的上游 —— pr-agent 侧工具只有 20s 超时。把它串在响应之前,只要这次
+  // 真的拉到新活动就必然超时,对话里只能反复说「正在拉/还在跑」,用户永远拿不到结果
+  // (2026-10-16 线上对话实测)。改为 fire-and-forget:响应只等到数据入库,复盘随后自己生成完
+  // —— 与同文件 performSync 内 mirrorActivitiesToTurso 的处理方式一致。
+  if (result.success && result.activityIds.length > 0) {
+    void requestPrReviewBatch(result.activityIds).catch(error =>
+      console.warn('[sync/keep] 复盘批量生成失败(数据已入库,不影响本次同步结果):', (error as Error).message),
+    )
+  }
 
   return NextResponse.json({
     success: result.success,
     count: result.activitiesCount,
     activityIds: result.activityIds,
-    reviews,
     errorMessage: result.errorMessage,
   })
 })

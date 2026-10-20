@@ -1,7 +1,7 @@
 /**
  * Scheduler Service
  *
- * Manages cron jobs for activity sync, AI analysis, and PushPlus notifications.
+ * Manages cron jobs for activity sync and AI analysis.
  * Reads cron expressions from the database for configurable scheduling.
  */
 
@@ -9,11 +9,9 @@ import cron from 'node-cron'
 
 import { generateInsightsForUncached } from './ai'
 import { requestPrReviewBatch } from './pr-agent-client'
-import { generateDailyReport, sendPushPlus } from './notify'
 import { mirrorAdminDb } from './db-mirror'
 import { cleanupOldData } from './retention'
-import { getRuntimeSetting } from './runtime-config'
-import { ensureDefaultJobs, listJobs, recordJobRun } from './scheduler-config'
+import { listJobs, recordJobRun } from './scheduler-config'
 import { drainStravaEvents } from './strava/events'
 import { performSync } from './sync/service'
 
@@ -47,10 +45,8 @@ async function syncActivities(): Promise<number> {
       const reviews = await requestPrReviewBatch(result.activityIds)
       console.log(`[Scheduler] Keep sync: ${result.activitiesCount} activities`)
       console.log(
-        `[Scheduler] PR reviews: ${reviews.generated} generated, ${reviews.skipped} skipped, ${reviews.failed} failed, ${reviews.notified} notified`,
+        `[Scheduler] PR reviews: ${reviews.generated} generated, ${reviews.skipped} skipped, ${reviews.failed} failed`,
       )
-      // 「有推送入队就立刻分发」已随复盘链路迁去 pr-agent 的 /api/pr/reviews/generate-batch,
-      // 由它在生成后就地 dispatch,跑完几秒内到微信的体验不变。
     } else if (!result.success) {
       console.warn('[Scheduler] Keep sync failed:', result.errorMessage)
     }
@@ -61,28 +57,14 @@ async function syncActivities(): Promise<number> {
   return totalSynced
 }
 
-// ─── Job: Sync + Notify ─────────────────────────────────────────────────────
+// ─── Job: Sync ──────────────────────────────────────────────────────────────
 
-async function jobSyncAndNotify() {
+async function jobSyncActivities() {
   console.log('[Scheduler] Running sync job...')
   const startTime = Date.now()
 
   try {
     const syncedCount = await syncActivities()
-
-    if (syncedCount > 0) {
-      // Reason: 走运行时配置读取,UI 改 token 立即对调度推送生效
-      const token = await getRuntimeSetting('PUSHPLUS_TOKEN')
-      if (token) {
-        try {
-          await sendPushPlus(token, `🏃 同步完成 - 新增 ${syncedCount} 条活动`, `<p>已同步 ${syncedCount} 条新的运动记录到数据库。</p>`)
-          console.log(`[Scheduler] PushPlus: synced notification sent`)
-        } catch (err) {
-          console.warn('[Scheduler] PushPlus notify failed:', (err as Error).message)
-        }
-      }
-    }
-
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     await recordJobRun('sync', `success: ${syncedCount} activities in ${elapsed}s`)
   } catch (err) {
@@ -125,36 +107,6 @@ async function jobStravaEventDrain() {
   }
 }
 
-// ─── Job: Daily Report ──────────────────────────────────────────────────────
-
-async function jobDailyReport() {
-  console.log('[Scheduler] Running daily report job...')
-  const startTime = Date.now()
-
-  const token = await getRuntimeSetting('PUSHPLUS_TOKEN')
-  if (!token) {
-    console.warn('[Scheduler] PUSHPLUS_TOKEN not set, skipping daily report')
-    await recordJobRun('daily_report', 'skipped: PUSHPLUS_TOKEN not set')
-    return
-  }
-
-  try {
-    const { title, content } = await generateDailyReport()
-    const result = await sendPushPlus(token, title, content)
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-    if (result.success) {
-      console.log('[Scheduler] Daily report sent via PushPlus')
-      await recordJobRun('daily_report', `success in ${elapsed}s`)
-    } else {
-      console.warn('[Scheduler] PushPlus failed:', result.message)
-      await recordJobRun('daily_report', `error: ${result.message} (${elapsed}s)`)
-    }
-  } catch (err) {
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-    await recordJobRun('daily_report', `error: ${(err as Error).message} (${elapsed}s)`)
-  }
-}
-
 async function jobRetentionCleanup() {
   console.log('[Scheduler] Running retention cleanup job...')
   const startTime = Date.now()
@@ -192,22 +144,6 @@ export async function manualInsights(): Promise<{ success: boolean; message: str
   }
 }
 
-export async function manualNotify(): Promise<{ success: boolean; message: string }> {
-  const token = await getRuntimeSetting('PUSHPLUS_TOKEN')
-  if (!token) {
-    return { success: false, message: 'PUSHPLUS_TOKEN not set' }
-  }
-
-  try {
-    const { title, content } = await generateDailyReport()
-    const result = await sendPushPlus(token, title, content)
-    await recordJobRun('daily_report', `manual: ${result.success ? 'success' : result.message}`)
-    return { success: result.success, message: result.message || 'Notification sent' }
-  } catch (err) {
-    return { success: false, message: (err as Error).message }
-  }
-}
-
 export async function manualStravaEventDrain(): Promise<{ success: boolean; message: string }> {
   try {
     const result = await drainStravaEvents(10)
@@ -231,7 +167,7 @@ async function jobAdminDbMirror() {
     } else {
       // Reason: ran:false 时原先什么都不记,而 last_run_at 是面板「上次执行」的唯一
       // 数据源 —— 于是这个任务每 30 分钟都在跑、只是跳过,面板却永久显示「从未执行」,
-      // 看起来像 cron 没注册。与 daily_report 的 skipped 语义对齐。
+      // 看起来像 cron 没注册。跳过时也补一条记录,面板「上次执行」才不会空白。
       await recordJobRun('admin_db_mirror', 'skipped: 未配置 ADMIN_MIRROR_DATABASE_URL')
     }
   } catch (err) {
@@ -242,10 +178,9 @@ async function jobAdminDbMirror() {
 // ─── Scheduler Init ─────────────────────────────────────────────────────────
 
 const JOB_HANDLERS: Record<string, () => Promise<void>> = {
-  sync: jobSyncAndNotify,
+  sync: jobSyncActivities,
   strava_event_drain: jobStravaEventDrain,
   insights: jobGenerateInsights,
-  daily_report: jobDailyReport,
   retention_cleanup: jobRetentionCleanup,
   admin_db_mirror: jobAdminDbMirror,
 }

@@ -1,10 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { MessageSquareText, RefreshCw, Send } from 'lucide-react'
+import { MessageSquareText, RefreshCw } from 'lucide-react'
 
 import { cn, formatDateTime } from '@/lib/utils'
-import { useToast } from '@/components/ui/toast'
 
 import { LoadingState } from './shared'
 
@@ -26,11 +25,9 @@ const KIND_LABEL: Record<string, string> = {
 }
 
 export function PrReviewsPanel() {
-  const { success, error: toastError } = useToast()
   const [reviews, setReviews] = useState<ReviewSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
 
   const fetchReviews = async () => {
     setLoading(true)
@@ -52,22 +49,6 @@ export function PrReviewsPanel() {
   useEffect(() => {
     void Promise.resolve().then(fetchReviews)
   }, [])
-
-  async function resend(id: string) {
-    setBusyId(id)
-    try {
-      const res = await fetch('/api/activities/reviews/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reviewId: id, dispatchNow: true }),
-      })
-      if (res.ok) success('已重新发送到微信')
-      else toastError(`重发失败 (HTTP ${res.status})`)
-    } catch (e) {
-      toastError(`重发失败: ${e instanceof Error ? e.message : '网络错误'}`)
-    }
-    setBusyId(null)
-  }
 
   if (loading) return <LoadingState />
 
@@ -100,12 +81,6 @@ export function PrReviewsPanel() {
                 <span className="text-muted-foreground ml-auto">{formatDateTime(review.createdAt)}</span>
               </div>
               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{review.content}</p>
-              <div className="mt-2">
-                <button type="button" disabled={busyId === review.id} onClick={() => resend(review.id)}
-                  className="bg-muted text-muted-foreground hover:bg-accent inline-flex items-center gap-1 rounded px-2 py-1 text-xs disabled:opacity-50">
-                  <Send className="h-3 w-3" /> 重发微信
-                </button>
-              </div>
             </div>
           ))}
         </div>

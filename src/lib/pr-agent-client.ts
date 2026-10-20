@@ -94,7 +94,6 @@ export interface ReviewBatchResult {
   generated: number
   skipped: number
   failed: number
-  notified: number
 }
 
 /**
@@ -108,7 +107,7 @@ export interface ReviewBatchResult {
  * 由 pr-agent 自己的定时复盘兜底。
  */
 export async function requestPrReviewBatch(activityIds: string[]): Promise<ReviewBatchResult> {
-  const empty: ReviewBatchResult = { generated: 0, skipped: 0, failed: 0, notified: 0 }
+  const empty: ReviewBatchResult = { generated: 0, skipped: 0, failed: 0 }
   if (activityIds.length === 0 || !isPrAgentConfigured()) return empty
 
   try {
