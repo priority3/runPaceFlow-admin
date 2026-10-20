@@ -3,7 +3,6 @@
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import {
   BarChart3,
-  Bell,
   Brain,
   Clipboard,
   Cloud,
@@ -32,11 +31,10 @@ const CATEGORY_ICONS: Record<SettingCategory, React.ComponentType<{ className?: 
   ai: Brain,
   map: MapIcon,
   goals: Target,
-  notification: Bell,
   analytics: BarChart3,
 }
 
-const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'map', 'goals', 'notification', 'analytics']
+const CATEGORY_ORDER: SettingCategory[] = ['database', 'sync', 'ai', 'map', 'goals', 'analytics']
 
 export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
   const { success, error: toastError } = useToast()

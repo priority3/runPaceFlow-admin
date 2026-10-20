@@ -23,7 +23,6 @@ const HANDLED_JOB_IDS = new Set([
   'sync',
   'strava_event_drain',
   'insights',
-  'daily_report',
   'retention_cleanup',
   'admin_db_mirror',
 ])

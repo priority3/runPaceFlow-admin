@@ -27,17 +27,19 @@ export const POST = withAuth(async (request) => {
   const fullSync = body.fullSync === true
 
   const result = await performSync({ source: 'strava', limit, fullSync })
-  const reviews =
-    result.success && result.activityIds.length > 0
-      ? await requestPrReviewBatch(result.activityIds)
-      : { generated: 0, skipped: 0, failed: 0, notified: 0 }
+
+  // 同 /api/sync/keep:复盘生成是 LLM 慢活,不阻塞同步结果的返回(否则调用方必然超时)。
+  if (result.success && result.activityIds.length > 0) {
+    void requestPrReviewBatch(result.activityIds).catch(error =>
+      console.warn('[sync/strava] 复盘批量生成失败(数据已入库,不影响本次同步结果):', (error as Error).message),
+    )
+  }
 
   return NextResponse.json(
     {
       success: result.success,
       count: result.activitiesCount,
       activityIds: result.activityIds,
-      reviews,
       errorMessage: result.errorMessage,
       logId: result.logId,
     },

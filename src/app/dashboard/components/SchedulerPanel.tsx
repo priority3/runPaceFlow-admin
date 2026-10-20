@@ -3,8 +3,6 @@
 import { useEffect, useState } from 'react'
 import {
   AlertCircle,
-  BarChart3,
-  Bell,
   Brain,
   CheckCircle2,
   Cloud,
@@ -202,13 +200,10 @@ export function SchedulerPanel() {
       {/* Manual Triggers */}
       <section>
         <h3 className="mb-3 text-sm font-semibold">手动触发</h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2">
           {[
             { action: 'sync', label: '同步数据', icon: Cloud, desc: '立即从 Keep 同步运动数据' },
             { action: 'insights', label: 'AI 分析', icon: Brain, desc: '为未分析的活动生成 AI 洞察' },
-            { action: 'notification-dispatch', label: 'PR 通知', icon: Bell, desc: '发送待推送的 PR 复盘通知' },
-            { action: 'notify', label: '发送报告', icon: Bell, desc: '立即推送今日训练报告到微信' },
-            { action: 'analytics-digest', label: '访问日报', icon: BarChart3, desc: '推送今日访问数据摘要到微信' },
           ].map(item => (
             <div key={item.action} className="bg-card rounded-lg border p-4 shadow-sm">
               <div className="flex items-center gap-2 mb-2">
