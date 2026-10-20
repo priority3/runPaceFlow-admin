@@ -4,7 +4,6 @@ export type SettingCategory =
   | 'ai'
   | 'map'
   | 'goals'
-  | 'notification'
   | 'analytics'
 
 export type SettingKind = 'text' | 'password' | 'url' | 'number' | 'select'
@@ -51,11 +50,6 @@ export const CATEGORY_META: Record<
     label: '运动目标',
     description: '首页统计卡片使用的周/月目标。改后约 1 秒经运行时通道生效，无需重建。',
     accent: 'orange',
-  },
-  notification: {
-    label: '通知推送',
-    description: 'PushPlus 推送通知配置，用于训练日报和同步提醒。',
-    accent: 'pink',
   },
   analytics: {
     label: '数据分析',
@@ -269,15 +263,6 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     category: 'goals',
     kind: 'number',
     defaultValue: '28800',
-  },
-  {
-    key: 'PUSHPLUS_TOKEN',
-    label: 'PushPlus Token',
-    description:
-      'PushPlus 推送服务 Token，用于训练日报、PR 复盘等微信推送。获取方式：pushplus.plus 微信扫码登录 → 「一对一推送」页复制 Token。',
-    category: 'notification',
-    kind: 'password',
-    sensitive: true,
   },
   // Analytics
   {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bell, BookOpen, CalendarDays, Footprints, MapIcon, Plus, RefreshCw, Search, Timer, TrendingUp } from 'lucide-react'
+import { BookOpen, CalendarDays, Footprints, MapIcon, Plus, RefreshCw, Search, Timer, TrendingUp } from 'lucide-react'
 
 import { LoadingState, StatCard } from './shared'
 
@@ -69,7 +69,6 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
     feedbackRate: number
     memoryConfirmationRate: number
     contextHitRate: number
-    notificationEngagementRate: number
   } | null>(null)
   const [reviews, setReviews] = useState<Array<{
     id: string
@@ -81,7 +80,6 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
   }>>([])
   const [reviewsLoading, setReviewsLoading] = useState(true)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
-  const [notifyingId, setNotifyingId] = useState<string | null>(null)
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, { rpe: string; note: string }>>({})
   const [savingFeedbackId, setSavingFeedbackId] = useState<string | null>(null)
   const [memories, setMemories] = useState<Array<{
@@ -195,24 +193,11 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
       await fetch('/api/activities/reviews/regenerate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activityId, enqueueNotification: false }),
+        body: JSON.stringify({ activityId }),
       })
       await fetchReviews()
     } finally {
       setRegeneratingId(null)
-    }
-  }
-
-  const notifyReview = async (reviewId: string) => {
-    setNotifyingId(reviewId)
-    try {
-      await fetch('/api/activities/reviews/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reviewId, dispatchNow: true }),
-      })
-    } finally {
-      setNotifyingId(null)
     }
   }
 
@@ -230,7 +215,6 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
           activityId,
           rpe: draft.rpe ? Number(draft.rpe) : null,
           note: draft.note,
-          enqueueNotification: false,
         }),
       })
       setFeedbackDrafts(prev => ({ ...prev, [activityId]: { rpe: '', note: '' } }))
@@ -316,7 +300,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
       await fetch('/api/pr/weekly-review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: true, enqueueNotification: false }),
+        body: JSON.stringify({ force: true }),
       })
       await fetchReviews()
       await fetchAgentRuns()
@@ -383,7 +367,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
       {flywheel && (
         <section>
           <h3 className="mb-3 text-sm font-semibold">PR 飞轮</h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg border bg-card p-3 shadow-sm">
               <p className="text-muted-foreground text-xs">新增事实</p>
               <p className="mt-1 text-lg font-semibold tabular-nums">{flywheel.factGrowth}</p>
@@ -399,10 +383,6 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
             <div className="rounded-lg border bg-card p-3 shadow-sm">
               <p className="text-muted-foreground text-xs">上下文命中</p>
               <p className="mt-1 text-lg font-semibold tabular-nums">{(flywheel.contextHitRate * 100).toFixed(0)}%</p>
-            </div>
-            <div className="rounded-lg border bg-card p-3 shadow-sm">
-              <p className="text-muted-foreground text-xs">通知送达</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{(flywheel.notificationEngagementRate * 100).toFixed(0)}%</p>
             </div>
           </div>
         </section>
@@ -620,15 +600,6 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => notifyReview(review.id)}
-                        disabled={notifyingId === review.id}
-                        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50"
-                        title="发送复盘通知"
-                      >
-                        <Bell className={`h-4 w-4 ${notifyingId === review.id ? 'animate-pulse' : ''}`} />
-                      </button>
                       <button
                         type="button"
                         onClick={() => regenerateReview(review.activityId)}

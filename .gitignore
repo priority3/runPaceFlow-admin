@@ -13,3 +13,5 @@ pnpm-debug.log*
 bun.lockb
 .!*!*
 .claude/settings.local.json
+# 工具(WorkBuddy)的项目级工作区:本地记忆/会话产物,不该进仓库
+.workbuddy/

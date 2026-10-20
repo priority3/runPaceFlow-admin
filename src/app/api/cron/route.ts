@@ -2,7 +2,7 @@
  * Cron Manual Trigger API
  *
  * POST /api/cron
- * Body: { action: 'sync' | 'insights' | 'notify' | 'notification-dispatch' | 'analytics-digest' | 'retention-cleanup' }
+ * Body: { action: 'sync' | 'insights' | 'weekly-review' | 'daily-review' | 'strava-event-drain' | 'retention-cleanup' }
  *
  * Manually triggers scheduled jobs for testing.
  */
@@ -11,14 +11,12 @@ import { NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/api-helpers'
 import { prAgentFetch } from '@/lib/pr-agent-client'
-import { manualSync, manualInsights, manualNotify, manualStravaEventDrain } from '@/lib/scheduler'
-import { generateAnalyticsDigest, sendPushPlus } from '@/lib/notify'
+import { manualSync, manualInsights, manualStravaEventDrain } from '@/lib/scheduler'
 import { cleanupOldData } from '@/lib/retention'
-import { getRuntimeSetting } from '@/lib/runtime-config'
 
 export const dynamic = 'force-dynamic'
 
-const VALID_ACTIONS = ['sync', 'insights', 'notify', 'notification-dispatch', 'weekly-review', 'daily-review', 'strava-event-drain', 'analytics-digest', 'retention-cleanup'] as const
+const VALID_ACTIONS = ['sync', 'insights', 'weekly-review', 'daily-review', 'strava-event-drain', 'retention-cleanup'] as const
 
 /**
  * PR 域的手动触发转发给 pr-agent(那边是逻辑 owner,定时任务也归它)。
@@ -62,12 +60,6 @@ export const POST = withAuth(async (request) => {
     case 'insights':
       result = await manualInsights()
       break
-    case 'notify':
-      result = await manualNotify()
-      break
-    case 'notification-dispatch':
-      result = await triggerOnPrAgent('/api/pr/notifications/dispatch')
-      break
     case 'weekly-review':
       result = await triggerOnPrAgent('/api/pr/weekly-review')
       break
@@ -77,18 +69,6 @@ export const POST = withAuth(async (request) => {
     case 'strava-event-drain':
       result = await manualStravaEventDrain()
       break
-    case 'analytics-digest': {
-      const digest = await generateAnalyticsDigest()
-      // Reason: 裸 SQL 读 app_settings 拿不到解密后的敏感值,统一走运行时配置读取
-      const pushToken = await getRuntimeSetting('PUSHPLUS_TOKEN')
-      if (!pushToken) {
-        result = { success: false, message: 'PUSHPLUS_TOKEN not configured' }
-        break
-      }
-      const sendResult = await sendPushPlus(pushToken, digest.title, digest.content)
-      result = { success: sendResult.success, message: sendResult.success ? 'Analytics digest sent' : (sendResult.message || 'Failed to send') }
-      break
-    }
     case 'retention-cleanup': {
       const retention = await cleanupOldData()
       result = { success: true, message: `Cleaned ${retention.deleted} rows (retention: ${retention.retentionDays} days)` }

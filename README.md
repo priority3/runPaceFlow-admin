@@ -77,4 +77,4 @@ curl -fsSL -X POST \
 - 配置面板里的 `ANTHROPIC_*` 分组只喂**本仓的 AI 洞察**;PR 对话用的网关在顶部
   「PR Agent 模型网关」卡片里配(存到 pr-agent 侧,密文落库)。
 - 与 pr-agent 共库部署时,PR 系定时任务由 pr-agent 跑(本仓 scheduler 只保留
-  sync / insights / daily_report / strava_event_drain / retention_cleanup)。
+  sync / insights / strava_event_drain / retention_cleanup / admin_db_mirror)。
