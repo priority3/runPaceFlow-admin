@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { BookOpen, CalendarDays, Footprints, MapIcon, Plus, RefreshCw, Search, Timer, TrendingUp } from 'lucide-react'
 
-import { LoadingState, StatCard } from './shared'
+import { LoadingState, PanelHeader, StatCard } from './shared'
 
 interface ActivityStats {
   total: { activities: number; distance: number; duration: number; elevation: number; averagePace: number }
@@ -360,29 +360,27 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4">
-        <h2 className="text-xl font-semibold">运动数据</h2>
-      </header>
+      <PanelHeader title="运动数据" />
 
       {flywheel && (
         <section>
           <h3 className="mb-3 text-sm font-semibold">PR 飞轮</h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg border bg-card p-3 shadow-sm">
-              <p className="text-muted-foreground text-xs">新增事实</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{flywheel.factGrowth}</p>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="border-b pb-5" style={{ borderColor: 'var(--pr-line)' }}>
+              <p className="pr-kpi-label">新增事实</p>
+              <p className="pr-kpi mt-2">{flywheel.factGrowth}</p>
             </div>
-            <div className="rounded-lg border bg-card p-3 shadow-sm">
-              <p className="text-muted-foreground text-xs">反馈率</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{(flywheel.feedbackRate * 100).toFixed(0)}%</p>
+            <div className="border-b pb-5" style={{ borderColor: 'var(--pr-line)' }}>
+              <p className="pr-kpi-label">反馈率</p>
+              <p className="pr-kpi mt-2">{(flywheel.feedbackRate * 100).toFixed(0)}%</p>
             </div>
-            <div className="rounded-lg border bg-card p-3 shadow-sm">
-              <p className="text-muted-foreground text-xs">记忆确认</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{(flywheel.memoryConfirmationRate * 100).toFixed(0)}%</p>
+            <div className="border-b pb-5" style={{ borderColor: 'var(--pr-line)' }}>
+              <p className="pr-kpi-label">记忆确认</p>
+              <p className="pr-kpi mt-2">{(flywheel.memoryConfirmationRate * 100).toFixed(0)}%</p>
             </div>
-            <div className="rounded-lg border bg-card p-3 shadow-sm">
-              <p className="text-muted-foreground text-xs">上下文命中</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{(flywheel.contextHitRate * 100).toFixed(0)}%</p>
+            <div className="border-b pb-5" style={{ borderColor: 'var(--pr-line)' }}>
+              <p className="pr-kpi-label">上下文命中</p>
+              <p className="pr-kpi mt-2">{(flywheel.contextHitRate * 100).toFixed(0)}%</p>
             </div>
           </div>
         </section>
@@ -408,7 +406,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
           </div>
           <div className="divide-y">
             {raceGoals.length === 0 ? (
-              <div className="text-muted-foreground px-4 py-6 text-sm">暂无 active 比赛目标。</div>
+              <div className="text-muted-foreground px-4 py-6 text-sm">还没有 active 比赛目标。</div>
             ) : (
               raceGoals.map(goal => (
                 <div key={goal.id} className="flex flex-col gap-1 px-4 py-3 text-sm">
@@ -443,7 +441,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
           </div>
           <div className="divide-y">
             {healthMetrics.length === 0 ? (
-              <div className="text-muted-foreground px-4 py-6 text-sm">暂无恢复数据。</div>
+              <div className="text-muted-foreground px-4 py-6 text-sm">还没有恢复数据。</div>
             ) : (
               healthMetrics.map(metric => (
                 <div key={metric.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
@@ -498,7 +496,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
           </div>
           <div className="divide-y">
             {lifeEvents.length === 0 ? (
-              <div className="text-muted-foreground px-4 py-6 text-sm">暂无生活观察。</div>
+              <div className="text-muted-foreground px-4 py-6 text-sm">还没有生活观察。</div>
             ) : (
               lifeEvents.map(event => (
                 <article key={event.id} className="px-4 py-3 text-sm">
@@ -588,7 +586,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
           {reviewsLoading ? (
             <div className="text-muted-foreground px-4 py-6 text-sm">正在读取 PR 复盘...</div>
           ) : reviews.length === 0 ? (
-            <div className="text-muted-foreground px-4 py-6 text-sm">暂无 PR 复盘。同步新活动后会自动生成。</div>
+            <div className="text-muted-foreground px-4 py-6 text-sm">还没有 PR 复盘。同步新活动后会自动生成。</div>
           ) : (
             <div className="divide-y">
               {reviews.map(review => (
@@ -680,7 +678,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
         </div>
         <div className="bg-card overflow-hidden rounded-lg border shadow-sm">
           {diaryEntries.length === 0 ? (
-            <div className="text-muted-foreground px-4 py-6 text-sm">暂无老友日记。</div>
+            <div className="text-muted-foreground px-4 py-6 text-sm">还没有老友日记。</div>
           ) : (
             <div className="divide-y">
               {diaryEntries.map(entry => (
@@ -700,7 +698,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
         <h3 className="mb-3 text-sm font-semibold">PR 记忆候选</h3>
         <div className="bg-card overflow-hidden rounded-lg border shadow-sm">
           {memories.length === 0 ? (
-            <div className="text-muted-foreground px-4 py-6 text-sm">暂无候选或 active 记忆。</div>
+            <div className="text-muted-foreground px-4 py-6 text-sm">还没有候选或 active 记忆。</div>
           ) : (
             <div className="divide-y">
               {memories.slice(0, 8).map(memory => (
@@ -742,7 +740,7 @@ export function ActivitiesPanel({ stats, loading }: { stats: ActivityStats | nul
         <h3 className="mb-3 text-sm font-semibold">PR 运行审计</h3>
         <div className="bg-card overflow-hidden rounded-lg border shadow-sm">
           {agentRuns.length === 0 ? (
-            <div className="text-muted-foreground px-4 py-6 text-sm">暂无 PR 运行记录。</div>
+            <div className="text-muted-foreground px-4 py-6 text-sm">还没有 PR 运行记录。</div>
           ) : (
             <div className="divide-y">
               {agentRuns.map(run => (

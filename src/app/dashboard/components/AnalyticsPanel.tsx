@@ -33,7 +33,7 @@ import { ErrorTrackingPanel } from './ErrorTrackingPanel'
 import { FunnelSection } from './FunnelSection'
 import { JourneyPanel } from './JourneyPanel'
 import { RealtimeMapPanel } from './RealtimeMapPanel'
-import { AnalyticsData, DATE_PRESETS, StatCard } from './shared'
+import { AnalyticsData, DATE_PRESETS, EmptyState, PanelHeader, StatCard } from './shared'
 
 import { InsightsPanel } from './InsightsPanel'
 
@@ -90,59 +90,62 @@ export function AnalyticsPanel() {
   }, [fetchAnalytics])
 
   if (loading) return <LoadingState />
-  if (!data) return <div className="text-muted-foreground p-8 text-center text-sm">无法加载分析数据</div>
+  if (!data) return (
+    <div className="px-4 py-6 sm:px-6 lg:px-8">
+      <EmptyState
+        line="分析数据还没加载出来。"
+        action={<button type="button" onClick={() => fetchAnalytics()} className="pr-btn">重试</button>}
+      />
+    </div>
+  )
 
   const maxDailyViews = Math.max(...data.dailyViews.map(d => d.views), 1)
 
+  // 异常提示:一行文字 + 状态点。三态靠形状(实心 / 空心 / 警示)和文案,不靠底色块。
   const anomalyBanner = data.anomaly.status !== 'no_data' && (
-    <div className={cn(
-      'rounded-md border px-4 py-3 text-sm flex items-center gap-2',
-      data.anomaly.status === 'spike' && 'border-emerald-200 bg-emerald-50 text-emerald-900',
-      data.anomaly.status === 'drop' && 'border-amber-200 bg-amber-50 text-amber-900',
-      data.anomaly.status === 'normal' && 'border-blue-200 bg-blue-50 text-blue-900',
-    )}>
-      <span className="text-lg">
-        {data.anomaly.status === 'spike' ? '📈' : data.anomaly.status === 'drop' ? '📉' : '📊'}
-      </span>
+    <div className="flex items-center gap-2 border-b py-3 text-sm" style={{ borderColor: 'var(--pr-line)' }}>
+      <span className={cn(
+        'pr-status-dot',
+        data.anomaly.status === 'normal' && 'pr-status-dot--off',
+        data.anomaly.status === 'drop' && 'pr-status-dot--warn',
+      )} />
       <span>{data.anomaly.message}</span>
     </div>
   )
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">访问分析</h2>
-          <p className="text-muted-foreground text-xs mt-1">前端 PV / UV 数据统计</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-md border shadow-sm">
-            {DATE_PRESETS.map(p => (
-              <button
-                key={p.value}
-                type="button"
-                onClick={() => handleDaysChange(p.value)}
-                className={cn(
-                  'px-2.5 py-1.5 text-xs font-medium transition-colors',
-                  days === p.value ? 'bg-primary text-primary-foreground' : 'hover:bg-accent',
-                )}
-              >
-                {p.label}
-              </button>
-            ))}
+      <PanelHeader
+        title="访问分析"
+        description="前端 PV / UV 数据统计"
+        action={
+          <div className="flex items-center gap-4">
+            {/* 当前项用字重 + 下划线,不用实心底色块 */}
+            <div className="flex items-center gap-3">
+              {DATE_PRESETS.map(p => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => handleDaysChange(p.value)}
+                  className={cn(
+                    'text-xs transition-colors',
+                    days === p.value
+                      ? 'font-medium text-foreground underline underline-offset-4'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <ExportMenu days={days} />
+            <button type="button" onClick={() => fetchAnalytics()} disabled={refreshing} className="pr-btn">
+              <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+              刷新
+            </button>
           </div>
-          <ExportMenu days={days} />
-          <button
-            type="button"
-            onClick={() => fetchAnalytics()}
-            disabled={refreshing}
-            className="bg-background hover:bg-accent flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors disabled:opacity-60"
-          >
-            <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-            刷新
-          </button>
-        </div>
-      </header>
+        }
+      />
 
       {anomalyBanner}
 
@@ -170,10 +173,7 @@ export function AnalyticsPanel() {
       {data.realtime.count > 0 && (
         <div className="bg-card rounded-lg border p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-            </span>
+            <span className="pr-status-dot pr-status-dot--live" />
             <span className="text-sm font-medium">{data.realtime.count} 位访客正在浏览</span>
           </div>
           {data.realtime.paths.length > 0 && (
@@ -193,7 +193,7 @@ export function AnalyticsPanel() {
         <h3 className="mb-3 text-sm font-semibold">每日趋势 (近 14 天)</h3>
         <div className="bg-card rounded-lg border p-4 shadow-sm">
           {data.dailyViews.length === 0 ? (
-            <div className="text-muted-foreground py-8 text-center text-sm">暂无数据</div>
+            <div className="text-muted-foreground py-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
           ) : (
             <div className="flex items-end gap-1 h-40">
               {data.dailyViews.map((day) => (
@@ -221,7 +221,7 @@ export function AnalyticsPanel() {
           <h3 className="mb-3 text-sm font-semibold">热门页面</h3>
           <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
             {data.topPages.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="divide-y">
                 {data.topPages.slice(0, 10).map((page) => (
@@ -243,7 +243,7 @@ export function AnalyticsPanel() {
           <h3 className="mb-3 text-sm font-semibold">来源域名</h3>
           <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
             {data.referrerDomains.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="divide-y">
                 {data.referrerDomains.map((ref) => (

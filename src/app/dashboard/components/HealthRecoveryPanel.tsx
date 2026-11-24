@@ -116,7 +116,7 @@ export function HealthRecoveryPanel() {
         </div>
       ) : (
         <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
-          暂无健康数据。iOS 快捷指令上报后会出现在这里。
+          还没有健康数据。iOS 快捷指令上报后会出现在这里。
         </p>
       )}
     </div>

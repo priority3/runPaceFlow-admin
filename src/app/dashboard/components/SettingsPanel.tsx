@@ -21,6 +21,7 @@ import type { StoredSetting } from '@/lib/store'
 import { cn, maskValue } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
 
+import { PanelHeader } from './shared'
 import { PrGatewayCard } from './PrGatewayCard'
 import { SetupDiagnostic } from './SetupDiagnostic'
 import { SyncSourceProbe } from './SyncSourceProbe'
@@ -85,26 +86,27 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">配置管理</h2>
-          <p className="text-muted-foreground text-xs mt-1">{stats.configured}/{stats.total} 已配置 · {stats.secrets} 个密钥</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => { const f = document.getElementById('settings-form') as HTMLFormElement | null; f?.requestSubmit() }}
-          disabled={saving}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
-        >
-          {saving ? '保存中...' : '保存配置'}
-        </button>
-      </header>
+      <PanelHeader
+        title="配置管理"
+        description={`${stats.configured}/${stats.total} 已配置 · ${stats.secrets} 个密钥`}
+        action={
+          <button
+            type="button"
+            onClick={() => { const f = document.getElementById('settings-form') as HTMLFormElement | null; f?.requestSubmit() }}
+            disabled={saving}
+            className="pr-btn pr-btn-primary"
+          >
+            {saving ? '保存中...' : '保存配置'}
+          </button>
+        }
+      />
 
       <SetupDiagnostic />
 
       <PrGatewayCard />
 
-      <div className="flex gap-2 overflow-x-auto pb-2">
+      {/* 分类是一级导航,当前项用字重 + 下划线,不做成一排实心按钮 */}
+      <div className="flex gap-5 overflow-x-auto border-b pb-3" style={{ borderColor: 'var(--pr-line)' }}>
         {CATEGORY_ORDER.map(cat => {
           const Icon = CATEGORY_ICONS[cat]
           const meta = CATEGORY_META[cat]
@@ -115,16 +117,17 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
               key={cat}
               type="button"
               onClick={() => setActiveCategory(cat)}
+              aria-current={activeCategory === cat ? 'page' : undefined}
               className={cn(
-                'flex items-center gap-2 rounded-md px-3 py-2 text-sm whitespace-nowrap transition-colors',
+                'flex items-center gap-2 whitespace-nowrap text-xs transition-colors',
                 activeCategory === cat
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-card border hover:bg-accent',
+                  ? 'font-medium text-foreground underline underline-offset-4'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="h-3.5 w-3.5" />
               {meta.label}
-              <span className="text-xs opacity-70">{configured}/{catSettings.length}</span>
+              <span className="opacity-70">{configured}/{catSettings.length}</span>
             </button>
           )
         })}
@@ -152,7 +155,7 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
               <div className="relative w-full sm:w-80">
                 {def.kind === 'select' ? (
                   <select id={def.key} name={`setting:${def.key}`} defaultValue={value}
-                    className="border-input bg-background focus:border-ring h-10 w-full rounded-md border px-3 text-sm shadow-sm outline-none focus:ring-[3px]">
+                    className="pr-field h-10 w-full px-3 text-sm outline-none">
                     {def.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 ) : (
@@ -160,7 +163,7 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
                     inputMode={def.kind === 'number' ? 'numeric' : undefined}
                     defaultValue={value}
                     placeholder={def.kind === 'password' && value && !visible ? maskValue(value) : def.placeholder}
-                    className={cn('border-input bg-background placeholder:text-muted-foreground focus:border-ring h-10 w-full rounded-md border px-3 text-sm shadow-sm outline-none focus:ring-[3px]', def.kind === 'password' && 'pr-11')} />
+                    className={cn('pr-field h-10 w-full px-3 text-sm outline-none', def.kind === 'password' && 'pr-11')} />
                 )}
                 {def.kind === 'password' && (
                   <button type="button" onClick={() => setVisibleSecrets(p => ({ ...p, [def.key]: !p[def.key] }))}
@@ -176,27 +179,27 @@ export function SettingsPanel({ settings }: { settings: StoredSetting[] }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="bg-card rounded-lg border p-4 shadow-sm">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileInput className="h-4 w-4" />导入 .env</h3>
+          <h3 className="pr-title mb-3 flex items-center gap-2"><FileInput className="h-3.5 w-3.5" />导入 .env</h3>
           <form action={importAction} className="space-y-3">
             <textarea name="envText" rows={4} placeholder="DATABASE_URL=libsql://..."
-              className="border-input bg-background placeholder:text-muted-foreground focus:border-ring scrollbar-subtle w-full resize-none rounded-md border p-3 font-mono text-xs shadow-sm outline-none focus:ring-[3px]" />
+              className="pr-field pr-scroll w-full resize-none p-3 font-mono text-xs outline-none" />
             <button type="submit" disabled={importing}
-              className="bg-primary text-primary-foreground hover:bg-primary/90 flex h-9 w-full items-center justify-center gap-2 rounded-md text-sm font-medium shadow-sm disabled:opacity-50">
-              <Upload className="h-4 w-4" />{importing ? '导入中...' : '导入'}
+              className="pr-btn pr-btn-primary w-full">
+              <Upload className="h-3.5 w-3.5" />{importing ? '导入中...' : '导入'}
             </button>
           </form>
         </div>
 
         <div className="bg-card rounded-lg border p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="flex items-center gap-2 text-sm font-semibold"><Clipboard className="h-4 w-4" />导出 .env</h3>
+            <h3 className="pr-title flex items-center gap-2"><Clipboard className="h-3.5 w-3.5" />导出 .env</h3>
             <button type="button" onClick={handleExport} disabled={exporting}
-              className="bg-background hover:bg-accent flex h-8 items-center gap-2 rounded-md border px-3 text-xs shadow-sm disabled:opacity-50">
+              className="pr-btn h-8 text-xs">
               {exporting ? '生成中...' : '生成'}
             </button>
           </div>
           <textarea value={exportText} readOnly rows={4} placeholder="点击生成后显示"
-            className="border-input bg-background scrollbar-subtle w-full resize-none rounded-md border p-3 font-mono text-xs shadow-sm outline-none" />
+            className="pr-field pr-scroll w-full resize-none p-3 font-mono text-xs outline-none" />
         </div>
       </div>
     </div>

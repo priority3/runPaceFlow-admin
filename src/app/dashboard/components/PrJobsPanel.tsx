@@ -215,7 +215,7 @@ export function PrJobsPanel() {
                       value={draft ?? job.cronExpression}
                       onChange={e => setEditing(prev => ({ ...prev, [job.id]: e.target.value }))}
                       spellCheck={false}
-                      className="border-input bg-background focus:border-ring h-8 w-40 rounded-md border px-2 font-mono text-xs shadow-sm outline-none focus:ring-[3px]"
+                      className="pr-field h-8 w-40 px-2 font-mono text-xs outline-none"
                     />
                     {dirty && (
                       <button
