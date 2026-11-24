@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 
 import { logoutAction } from '@/app/actions'
-import type { ActivityStats, SyncStatus } from '@/lib/activity/dashboard-stats'
+import type { ActivityStats } from '@/lib/activity/dashboard-stats'
 import type { StoredSetting } from '@/lib/store'
 
 import { ActivitiesPanel } from './components/ActivitiesPanel'
@@ -43,40 +43,53 @@ interface DashboardViewProps {
 export function DashboardView({ settings }: DashboardViewProps) {
   const [tab, setTab] = useState<Tab>('overview')
   const [stats, setStats] = useState<ActivityStats | null>(null)
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const [monitor, setMonitor] = useState<MonitorData | null>(null)
   const [loadingStats, setLoadingStats] = useState(true)
+  const [monitorLoading, setMonitorLoading] = useState(false)
   const [statsError, setStatsError] = useState<string | null>(null)
   // Reason: 用 ref 记住"是否拿到过数据"。原写法在 setStats 的 updater 里再调
   // setLoadingStats(true) —— updater 在渲染阶段才执行,会把随后 setLoadingStats(false)
   // 覆盖成 true,概览页就永远停在骨架屏。
   const hasStatsRef = useRef(false)
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     // Reason: 仅首次（无数据）显示加载态；30s 轮询时保留已渲染内容，避免概览页周期性闪烁
     if (!hasStatsRef.current) setLoadingStats(true)
     try {
-      const [statsRes, monitorRes] = await Promise.all([
-        fetch('/api/stats', { cache: 'no-store' }).then(r => r.json()),
-        fetch('/api/monitor', { cache: 'no-store' }).then(r => r.json()),
-      ])
-      setStats(statsRes.stats)
+      const res = await fetch('/api/stats', { cache: 'no-store' }).then(r => r.json())
+      setStats(res.stats)
       hasStatsRef.current = true
-      setSyncStatus(statsRes.syncStatus)
-      setMonitor(monitorRes)
       setStatsError(null)
     } catch (e) {
       // Reason: 之前空 catch 会让加载失败和"真的没数据"无法区分，这里显式上报
       setStatsError(e instanceof Error ? e.message : '数据加载失败')
     }
     setLoadingStats(false)
-  }
-
-  useEffect(() => {
-    void Promise.resolve().then(fetchStats)
-    const interval = setInterval(fetchStats, 30000)
-    return () => clearInterval(interval)
   }, [])
+
+  const fetchMonitor = useCallback(async () => {
+    setMonitorLoading(true)
+    try {
+      const res = await fetch('/api/monitor', { cache: 'no-store' }).then(r => r.json())
+      setMonitor(res)
+    } catch {
+      // 拿不到时保留上次结果；首次失败由监控页空态承接,不再拖垮整个 dashboard
+    } finally {
+      setMonitorLoading(false)
+    }
+  }, [])
+
+  // Reason: 原来 8 个 tab 无论用不用都每 30s 拉 /api/stats(活动全表扫描)
+  // + /api/monitor(对外探活)。现在按当前页按需拉取,其余 5 个 tab 零请求。
+  useEffect(() => {
+    const tick = () => {
+      if (tab === 'overview' || tab === 'activities') void fetchStats()
+      if (tab === 'monitor') void fetchMonitor()
+    }
+    void Promise.resolve().then(tick)
+    const interval = setInterval(tick, 30000)
+    return () => clearInterval(interval)
+  }, [tab, fetchStats, fetchMonitor])
 
   return (
     <div className="min-h-dvh min-[520px]:pl-60">
@@ -134,7 +147,7 @@ export function DashboardView({ settings }: DashboardViewProps) {
       </aside>
 
       <main className="pr-canvas-soft min-h-dvh">
-        {statsError && (
+        {statsError && (tab === 'overview' || tab === 'activities') && (
           <div className="mx-4 mt-4 flex items-center justify-between gap-3 border-b py-3 text-sm sm:mx-6 lg:mx-8" style={{ borderColor: 'var(--pr-line)' }}>
             <span className="flex items-center gap-2">
               <span className="pr-status-dot pr-status-dot--warn" />
@@ -152,13 +165,13 @@ export function DashboardView({ settings }: DashboardViewProps) {
         )}
         {/* key 让切换 tab 时只做一次 8px 位移入场,不叠 scale */}
         <div key={tab} className="pr-enter">
-          {tab === 'overview' && <OverviewPanel stats={stats} syncStatus={syncStatus} monitor={monitor} loading={loadingStats} />}
+          {tab === 'overview' && <OverviewPanel stats={stats} loading={loadingStats} />}
           {tab === 'pr' && <PrPanel />}
           {tab === 'persona' && <PersonaPanel onOpenPr={() => setTab('pr')} />}
-          {tab === 'activities' && <ActivitiesPanel stats={stats} loading={loadingStats} />}
+          {tab === 'activities' && <ActivitiesPanel stats={stats} loading={loadingStats} onOpenPr={() => setTab('pr')} />}
           {tab === 'analytics' && <AnalyticsPanel />}
           {tab === 'scheduler' && <SchedulerPanel />}
-          {tab === 'monitor' && <MonitorPanel monitor={monitor} loading={loadingStats} />}
+          {tab === 'monitor' && <MonitorPanel monitor={monitor} loading={monitorLoading || monitor === null} />}
           {tab === 'settings' && <SettingsPanel settings={settings} />}
         </div>
       </main>
