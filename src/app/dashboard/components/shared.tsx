@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import { cn, formatDateTime } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,27 +96,6 @@ export function ServiceCard({ name, status, responseTime, type }: {
           {isOnline ? '在线' : '离线'}
           {responseTime != null && ` · ${responseTime}ms`}
           {type && ` · ${type.toUpperCase()}`}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-export function SyncCard({ source, configured, lastSync }: {
-  source: string; configured: boolean; lastSync?: { startedAt: string; completedAt: string | null; activitiesCount: number } | null
-}) {
-  return (
-    <div className="pr-row items-center">
-      <div className="pr-row-main">
-        <div className="flex items-center gap-2">
-          <span className={cn('pr-status-dot', !configured && 'pr-status-dot--off')} />
-          <strong className="pr-body font-normal">{source}</strong>
-        </div>
-        <span className="pr-meta mt-1 block">
-          {configured ? '已配置' : '未配置'}
-          {' · 最后同步 '}
-          {lastSync?.startedAt ? formatDateTime(lastSync.startedAt) : '无'}
-          {lastSync && ` · ${lastSync.activitiesCount} 条`}
         </span>
       </div>
     </div>
