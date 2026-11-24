@@ -6,8 +6,8 @@ import { Footprints, Target, Timer, TrendingUp } from 'lucide-react'
 import type { SyncStatus } from '@/lib/activity/dashboard-stats'
 import type { MonitorData } from '../DashboardView'
 
-import { ConnectionHealthPanel } from './ConnectionHealthPanel'
-import { LoadingState, PanelHeader, ServiceCard, StatCard, SyncCard } from './shared'
+import { ActivityPulse } from './ActivityPulse'
+import { LoadingState, PanelHeader, ServiceCard, StatCard } from './shared'
 
 interface ActivityStats {
   total: { activities: number; distance: number; duration: number; elevation: number; averagePace: number }
@@ -20,7 +20,7 @@ interface ActivityStats {
   }
 }
 
-function HealthScore({ monitor, syncStatus }: { monitor: MonitorData | null; syncStatus: SyncStatus | null }) {
+function HealthScore({ monitor }: { monitor: MonitorData | null }) {
   const [healthData, setHealthData] = useState<{ status: string; beacons: { last1h: number } } | null>(null)
 
   useEffect(() => {
@@ -109,8 +109,8 @@ export function OverviewPanel({
         <StatCard icon={Target} label="运动类型" value={`${stats?.byType.running.total.activities ?? 0} 跑 / ${stats?.byType.cycling.total.activities ?? 0} 骑`} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <HealthScore monitor={monitor} syncStatus={syncStatus} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <HealthScore monitor={monitor} />
         <ServiceCard
           name="前端"
           status={monitor?.services.find(s => s.name === 'Frontend')?.status ?? 'unknown'}
@@ -126,16 +126,12 @@ export function OverviewPanel({
           status={monitor?.database?.connected ? 'online' : 'offline'}
           type={monitor?.database?.type}
         />
-        <ConnectionHealthPanel />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <SyncCard
-          source="Strava"
-          configured={syncStatus?.strava.hasCredentials ?? false}
-          lastSync={syncStatus?.strava.latestSync}
-        />
-      </div>
+      {/* 原来这里是「信标连接状态」(PV 次数,没人访问就误报故障)和
+          「Strava 同步卡」(同步源早已切到 keep,永远显示未配置)。
+          换成真实时间线:最近同步/聊天/运动时间 + 近 14 天活动热力图。 */}
+      <ActivityPulse />
     </div>
   )
 }
