@@ -339,6 +339,43 @@
 .pr-ui .pr-row-main { flex: 1; min-width: 0; }
 .pr-ui .pr-row-end { flex: none; display: flex; align-items: center; gap: 8px; }
 
+/* 侧栏导航是「导航」,不是列表行:没有逐行横线、没有底色块、没有独立状态点列。
+   选中态 = 字重 + 墨色 + 一条贴住侧栏左缘的 2px 竖线(位置固定,不随内容浮动)。 */
+.pr-ui .pr-nav { display: flex; flex-direction: column; gap: 2px; }
+.pr-ui .pr-nav-item {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 7px 20px;
+  border: 0; border-radius: 0; background: none;
+  font: inherit; font-size: 14px; line-height: 1.4;
+  text-align: left; color: var(--pr-text-2); white-space: nowrap;
+  transition: color .18s;
+}
+.pr-ui .pr-nav-item:hover { color: var(--pr-text); }
+.pr-ui .pr-nav-item[aria-current='page'] { color: var(--pr-text); font-weight: 600; }
+.pr-ui .pr-nav-item[aria-current='page']::before {
+  content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 2px; height: 18px; background: var(--pr-accent);
+}
+.pr-ui .pr-nav-icon { flex: none; width: 16px; height: 16px; color: var(--pr-muted); transition: color .18s; }
+.pr-ui .pr-nav-item:hover .pr-nav-icon { color: var(--pr-text-2); }
+.pr-ui .pr-nav-item[aria-current='page'] .pr-nav-icon { color: var(--pr-text); }
+
+/* 窄屏:侧栏在文档流里,导航收成一行横向标签条,竖线改下划线 */
+@media (max-width: 519px) {
+  .pr-ui .pr-nav, .pr-ui .pr-nav-tools {
+    display: flex; flex-direction: row; flex-wrap: wrap; gap: 2px;
+    padding: 6px 12px;
+  }
+  .pr-ui .pr-nav-item, .pr-ui .pr-nav-tools .pr-nav-item {
+    width: auto; flex: none; padding: 6px 10px;
+  }
+  .pr-ui .pr-nav-item[aria-current='page']::before {
+    left: 10px; right: 10px; top: auto; bottom: 0; transform: none;
+    width: auto; height: 2px;
+  }
+}
+
 /* 字段:聚焦只压描边 */
 .pr-ui .pr-field {
   background: var(--pr-bg);

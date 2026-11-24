@@ -58,26 +58,23 @@ export function MonitorDashboard({ initialData }: MonitorDashboardProps) {
           <p className="pr-meta mt-1">监控面板</p>
         </div>
 
-        <div className="pr-scroll min-[520px]:flex-1 min-[520px]:overflow-y-auto px-5 py-3">
-          <nav>
-            <Link href="/" className="pr-row pr-nav-idle items-center gap-3 py-2.5 text-sm">
-              <span className="h-1.5 w-1.5 shrink-0" />
-              <Server className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="pr-scroll min-[520px]:flex-1 min-[520px]:overflow-y-auto py-3">
+          <nav className="pr-nav">
+            <Link href="/" className="pr-nav-item">
+              <Server className="pr-nav-icon" />
               运维控制台
             </Link>
-            <div className="pr-row items-center gap-3 py-2.5 text-sm font-medium">
-              <span className="pr-status-dot" />
-              <Activity className="h-4 w-4 shrink-0" />
+            <div className="pr-nav-item" aria-current="page">
+              <Activity className="pr-nav-icon" />
               系统监控
             </div>
           </nav>
         </div>
 
-        <div className="border-t px-5 py-3" style={{ borderColor: 'var(--pr-line)' }}>
+        <div className="pr-nav-tools border-t py-3" style={{ borderColor: 'var(--pr-line)' }}>
           <form action={logoutAction}>
-            <button type="submit" className="pr-row pr-nav-idle items-center gap-3 py-2.5 text-sm">
-              <span className="h-1.5 w-1.5 shrink-0" />
-              <LogOut className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <button type="submit" className="pr-nav-item">
+              <LogOut className="pr-nav-icon" />
               退出登录
             </button>
           </form>
