@@ -7,9 +7,7 @@ import {
   Clock,
   Cpu,
   Database,
-  Globe,
   HardDrive,
-  LayoutDashboard,
   LogOut,
   RefreshCw,
   Server,
@@ -53,73 +51,54 @@ export function MonitorDashboard({ initialData }: MonitorDashboardProps) {
   }
 
   return (
-    <div className="bg-muted/40 text-foreground min-h-dvh min-[520px]:pl-60">
-      <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border border-b min-[520px]:fixed min-[520px]:inset-y-0 min-[520px]:left-0 min-[520px]:z-40 min-[520px]:flex min-[520px]:w-60 min-[520px]:flex-col min-[520px]:border-r min-[520px]:border-b-0">
-        <div className="border-sidebar-border flex h-16 items-center gap-3 border-b px-4">
-          <span className="bg-primary text-primary-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-md">
-            <LayoutDashboard className="h-5 w-5" />
-          </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold">RunPaceFlow Admin</h1>
-            <p className="text-muted-foreground truncate text-xs">监控面板</p>
-          </div>
+    <div className="min-h-dvh min-[520px]:pl-60">
+      <aside className="border-b min-[520px]:fixed min-[520px]:inset-y-0 min-[520px]:left-0 min-[520px]:z-40 min-[520px]:flex min-[520px]:w-60 min-[520px]:flex-col min-[520px]:border-r min-[520px]:border-b-0" style={{ borderColor: 'var(--pr-line)' }}>
+        <div className="border-b px-5 py-5" style={{ borderColor: 'var(--pr-line)' }}>
+          <h1 className="pr-h1">RunPaceFlow</h1>
+          <p className="pr-meta mt-1">监控面板</p>
         </div>
 
-        <div className="scrollbar-subtle min-[520px]:flex-1 min-[520px]:overflow-y-auto">
-          <nav className="space-y-1 p-3">
-            <Link
-              href="/"
-              className="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm transition-colors"
-            >
-              <Server className="h-4 w-4" />
+        <div className="pr-scroll min-[520px]:flex-1 min-[520px]:overflow-y-auto px-5 py-3">
+          <nav>
+            <Link href="/" className="pr-row pr-nav-idle items-center gap-3 py-2.5 text-sm">
+              <span className="h-1.5 w-1.5 shrink-0" />
+              <Server className="h-4 w-4 shrink-0 text-muted-foreground" />
               运维控制台
             </Link>
-            <div className="bg-sidebar-accent text-sidebar-accent-foreground flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm font-medium">
-              <Activity className="h-4 w-4" />
+            <div className="pr-row items-center gap-3 py-2.5 text-sm font-medium">
+              <span className="pr-status-dot" />
+              <Activity className="h-4 w-4 shrink-0" />
               系统监控
             </div>
           </nav>
         </div>
 
-        <div className="border-sidebar-border border-t p-3">
+        <div className="border-t px-5 py-3" style={{ borderColor: 'var(--pr-line)' }}>
           <form action={logoutAction}>
-            <button
-              type="submit"
-              className="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm transition-colors"
-            >
-              <LogOut className="h-4 w-4" />
+            <button type="submit" className="pr-row pr-nav-idle items-center gap-3 py-2.5 text-sm">
+              <span className="h-1.5 w-1.5 shrink-0" />
+              <LogOut className="h-4 w-4 shrink-0 text-muted-foreground" />
               退出登录
             </button>
           </form>
         </div>
       </aside>
 
-      <header className="bg-background/95 sticky top-0 z-30 border-b backdrop-blur">
-        <div className="flex min-h-16 flex-col justify-center gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <div className="min-w-0">
-            <p className="text-muted-foreground text-xs">monitor</p>
-            <h2 className="truncate text-xl font-semibold">监控面板</h2>
+      <main className="pr-canvas-soft min-h-dvh space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <header className="flex items-start justify-between gap-4 pb-8 pt-2">
+          <div>
+            <h2 className="pr-h1">监控面板</h2>
+            <p className="pr-meta mt-1">monitor</p>
           </div>
-
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="bg-background hover:bg-accent hover:text-accent-foreground flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+          <button type="button" onClick={handleRefresh} disabled={refreshing} className="pr-btn">
+            <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
             {refreshing ? '刷新中...' : '刷新'}
           </button>
-        </div>
-      </header>
+        </header>
 
-      <main className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         {/* 服务状态 */}
         <section>
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Server className="h-4 w-4" />
-            服务状态
-          </h3>
+          <h3 className="pr-title mb-3 flex items-center gap-2"><Server className="h-3.5 w-3.5 text-muted-foreground" />服务状态</h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.services.map((service) => (
               <ServiceCard key={service.name} service={service} />
@@ -130,21 +109,10 @@ export function MonitorDashboard({ initialData }: MonitorDashboardProps) {
 
         {/* 配置同步状态 */}
         <section>
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <BarChart3 className="h-4 w-4" />
-            配置同步
-          </h3>
+          <h3 className="pr-title mb-3 flex items-center gap-2"><BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />配置同步</h3>
           <div className="grid gap-4 sm:grid-cols-3">
-            <InfoCard
-              label="最后同步"
-              value={data.sync.lastSyncTime ? formatDateTime(data.sync.lastSyncTime) : '无记录'}
-              icon={Clock}
-            />
-            <InfoCard
-              label="总变更次数"
-              value={String(data.sync.totalChanges)}
-              icon={Activity}
-            />
+            <InfoCard label="最后同步" value={data.sync.lastSyncTime ? formatDateTime(data.sync.lastSyncTime) : '无记录'} icon={Clock} />
+            <InfoCard label="总变更次数" value={String(data.sync.totalChanges)} icon={Activity} />
             <InfoCard
               label="失败次数"
               value={String(data.sync.recentFailures)}
@@ -156,189 +124,102 @@ export function MonitorDashboard({ initialData }: MonitorDashboardProps) {
 
         {/* 系统资源 */}
         <section>
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Cpu className="h-4 w-4" />
-            系统资源
-          </h3>
+          <h3 className="pr-title mb-3 flex items-center gap-2"><Cpu className="h-3.5 w-3.5 text-muted-foreground" />系统资源</h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <InfoCard
-              label="Node.js"
-              value={data.system.nodeVersion}
-              icon={Server}
-            />
-            <InfoCard
-              label="运行时间"
-              value={data.system.uptimeFormatted}
-              icon={Clock}
-            />
-            <InfoCard
-              label="Heap 使用"
-              value={`${data.system.memory.heapUsedFormatted} / ${data.system.memory.heapTotalFormatted}`}
-              icon={HardDrive}
-            />
-            <InfoCard
-              label="RSS 内存"
-              value={data.system.memory.rssFormatted}
-              icon={HardDrive}
-            />
+            <InfoCard label="Node.js" value={data.system.nodeVersion} icon={Server} />
+            <InfoCard label="运行时间" value={data.system.uptimeFormatted} icon={Clock} />
+            <InfoCard label="Heap 使用" value={`${data.system.memory.heapUsedFormatted} / ${data.system.memory.heapTotalFormatted}`} icon={HardDrive} />
+            <InfoCard label="RSS 内存" value={data.system.memory.rssFormatted} icon={HardDrive} />
           </div>
         </section>
 
         {/* 操作审计日志 */}
         <section>
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Shield className="h-4 w-4" />
-            操作审计
-          </h3>
-          <div className="bg-card overflow-hidden rounded-lg border shadow-sm">
-            {data.auditLogs.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无操作记录</div>
-            ) : (
-              <div className="divide-y">
-                {data.auditLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={cn(
-                          'inline-flex h-6 items-center rounded px-2 text-xs font-medium',
-                          log.action === 'upsert'
-                            ? 'bg-blue-50 text-blue-700'
-                            : log.action === 'import'
-                              ? 'bg-purple-50 text-purple-700'
-                              : 'bg-gray-50 text-gray-700',
-                        )}
-                      >
-                        {log.action}
-                      </span>
-                      <span className="text-muted-foreground font-mono text-xs">
-                        {log.key ?? '-'}
-                      </span>
-                    </div>
-                    <span className="text-muted-foreground shrink-0 text-xs">
-                      {formatDateTime(log.createdAt)}
-                    </span>
+          <h3 className="pr-title mb-3 flex items-center gap-2"><Shield className="h-3.5 w-3.5 text-muted-foreground" />操作审计</h3>
+          {data.auditLogs.length === 0 ? (
+            <div className="pr-empty"><span className="pr-empty-line">还没有操作记录，改一次配置就会出现在这里。</span></div>
+          ) : (
+            <div className="divide-y">
+              {data.auditLogs.map((log) => (
+                <div key={log.id} className="flex items-center justify-between gap-4 py-3 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="pr-tag font-mono">{log.action}</span>
+                    <span className="text-muted-foreground font-mono text-xs">{log.key ?? '—'}</span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  <span className="pr-meta shrink-0">{formatDateTime(log.createdAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </main>
     </div>
   )
 }
 
+/** 状态用点 + 文字:在线实心讯号色,降级空心,离线警示色。灰度下也分得出。 */
 function ServiceCard({ service }: { service: { name: string; status: string; responseTimeMs: number | null; url: string; error?: string } }) {
   const isOnline = service.status === 'online'
   const isDegraded = service.status === 'degraded'
 
   return (
-    <div className="bg-card rounded-lg border p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-medium">{service.name}</span>
-        <span
-          className={cn(
-            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-            isOnline
-              ? 'bg-emerald-50 text-emerald-700'
-              : isDegraded
-                ? 'bg-amber-50 text-amber-700'
-                : 'bg-red-50 text-red-700',
-          )}
-        >
-          {isOnline ? (
-            <CheckCircle2 className="h-3 w-3" />
-          ) : (
-            <XCircle className="h-3 w-3" />
-          )}
+    <div className="pr-row">
+      <div className="pr-row-main">
+        <div className="flex items-center gap-2">
+          <span className={cn('pr-status-dot', isDegraded && 'pr-status-dot--off', !isOnline && !isDegraded && 'pr-status-dot--warn')} />
+          <strong className="pr-body font-normal">{service.name}</strong>
+        </div>
+        <div className="pr-meta mt-1 block">
           {isOnline ? '在线' : isDegraded ? '降级' : '离线'}
-        </span>
+          {' · 响应 '}
+          {service.responseTimeMs !== null ? `${service.responseTimeMs}ms` : '—'}
+          {' · '}
+          <span className="font-mono">{service.url}</span>
+        </div>
+        {service.error && <p className="mt-2 text-xs" style={{ color: 'var(--pr-danger)' }}>{service.error}</p>}
       </div>
-      <dl className="space-y-1 text-xs">
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">响应时间</dt>
-          <dd className="tabular-nums">
-            {service.responseTimeMs !== null ? `${service.responseTimeMs}ms` : '-'}
-          </dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">地址</dt>
-          <dd className="text-muted-foreground truncate font-mono">{service.url}</dd>
-        </div>
-        {service.error && (
-          <div className="mt-2 rounded bg-red-50 p-2 text-red-700">{service.error}</div>
-        )}
-      </dl>
     </div>
   )
 }
 
 function DatabaseCard({ database }: { database: { connected: boolean; type: string; url: string; error?: string } }) {
   return (
-    <div className="bg-card rounded-lg border p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-medium">数据库</span>
-        <span
-          className={cn(
-            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-            database.connected
-              ? 'bg-emerald-50 text-emerald-700'
-              : 'bg-red-50 text-red-700',
-          )}
-        >
-          {database.connected ? (
-            <CheckCircle2 className="h-3 w-3" />
-          ) : (
-            <XCircle className="h-3 w-3" />
-          )}
+    <div className="pr-row">
+      <div className="pr-row-main">
+        <div className="flex items-center gap-2">
+          <span className={cn('pr-status-dot', !database.connected && 'pr-status-dot--warn')} />
+          <strong className="pr-body font-normal">数据库</strong>
+        </div>
+        <div className="pr-meta mt-1 block">
           {database.connected ? '已连接' : '断开'}
-        </span>
+          {` · ${database.type.toUpperCase()} · `}
+          <span className="font-mono">{database.url}</span>
+        </div>
+        {database.error && <p className="mt-2 text-xs" style={{ color: 'var(--pr-danger)' }}>{database.error}</p>}
       </div>
-      <dl className="space-y-1 text-xs">
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">类型</dt>
-          <dd className="font-medium uppercase">{database.type}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">地址</dt>
-          <dd className="text-muted-foreground truncate font-mono">{database.url}</dd>
-        </div>
-        {database.error && (
-          <div className="mt-2 rounded bg-red-50 p-2 text-red-700">{database.error}</div>
-        )}
-      </dl>
     </div>
   )
 }
 
-function InfoCard({
-  label,
-  value,
-  icon: Icon,
-  accent,
-}: {
+function InfoCard({ label, value, icon: Icon, accent }: {
   label: string
   value: string
   icon: React.ComponentType<{ className?: string }>
   accent?: 'red' | 'green'
 }) {
   return (
-    <div className="bg-card rounded-lg border p-4 shadow-sm">
-      <div className="flex items-center gap-2">
-        <Icon className="text-muted-foreground h-4 w-4" />
-        <span className="text-muted-foreground text-xs">{label}</span>
+    <div className="border-b pb-5" style={{ borderColor: 'var(--pr-line)' }}>
+      <div className="pr-kpi-label flex items-center gap-1.5">
+        <Icon className="h-3 w-3" />
+        {label}
       </div>
-      <p
-        className={cn(
-          'mt-2 truncate text-sm font-semibold tabular-nums',
-          accent === 'red' && 'text-red-600',
-          accent === 'green' && 'text-emerald-600',
-        )}
-      >
+      <p className="pr-kpi mt-2 truncate">
         {value}
+        {accent && (
+          <span className="ml-2 align-middle text-base text-muted-foreground" aria-label={accent === 'green' ? '正常' : '失败'}>
+            {accent === 'green' ? '✓' : '!'}
+          </span>
+        )}
       </p>
     </div>
   )

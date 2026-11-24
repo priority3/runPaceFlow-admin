@@ -18,7 +18,7 @@ import { useToast } from '@/components/ui/toast'
 
 import { PrJobsPanel } from './PrJobsPanel'
 
-import { LoadingState } from './shared'
+import { LoadingState, PanelHeader } from './shared'
 
 interface SchedulerJob {
   id: string
@@ -175,24 +175,21 @@ export function SchedulerPanel() {
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">任务调度</h2>
-          <p className="text-muted-foreground text-xs mt-1">配置定时任务的执行频率和通知时间</p>
-        </div>
-        <button
-          type="button"
-          onClick={fetchJobs}
-          className="bg-background hover:bg-accent flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition-colors"
-        >
-          <RefreshCw className="h-4 w-4" />
-          刷新
-        </button>
-      </header>
+      <PanelHeader
+        title="任务调度"
+        description="配置定时任务的执行频率和通知时间"
+        action={
+          <button type="button" onClick={fetchJobs} className="pr-btn">
+            <RefreshCw className="h-3.5 w-3.5" />
+            刷新
+          </button>
+        }
+      />
 
-      {/* Load Error Banner */}
+      {/* 出错才出现的警示色,不做整块底色 */}
       {loadError && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+        <div className="flex items-center gap-2 border-b py-3 text-sm" style={{ borderColor: 'var(--pr-line)' }}>
+          <span className="pr-status-dot pr-status-dot--warn" />
           {loadError}
         </div>
       )}
@@ -332,7 +329,7 @@ export function SchedulerPanel() {
                       value={customCron}
                       onChange={e => setCustomCron(e.target.value)}
                       placeholder="分 时 日 月 周 (例: 0 9 * * *)"
-                      className="border-input bg-background focus:border-ring h-9 w-full max-w-sm rounded-md border px-3 font-mono text-xs shadow-sm outline-none focus:ring-[3px]"
+                      className="pr-field h-9 w-full max-w-sm px-3 font-mono text-xs outline-none"
                     />
                   )}
                   <div className="flex gap-2">

@@ -86,7 +86,7 @@ export function PrReviewsPanel() {
         </div>
       ) : (
         <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
-          暂无反思。每天健康数据上报后 PR 会写一条晨间反思。
+          还没有反思。每天健康数据上报后 PR 会写一条晨间反思。
         </p>
       )}
     </div>

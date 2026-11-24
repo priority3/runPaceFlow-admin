@@ -225,7 +225,7 @@ export function PrAccessCard() {
           已授权设备({activeDevices.length} 台在用)
         </p>
         {devices.length === 0 ? (
-          <p className="text-muted-foreground px-4 py-6 text-sm">暂无设备。生成一条链接并在手机上打开即可。</p>
+          <p className="text-muted-foreground px-4 py-6 text-sm">还没有设备。生成一条链接并在手机上打开即可。</p>
         ) : (
           devices.map(device => {
             const badge = DEVICE_BADGE[device.status]

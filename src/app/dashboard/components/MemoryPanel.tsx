@@ -221,7 +221,7 @@ export function MemoryPanel() {
           <div className="space-y-2">{candidates.map(renderRow)}</div>
         ) : (
           <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
-            暂无候选记忆。等你和 PR 聊天或反馈时，它会蒸馏出候选放这里。
+            还没有候选记忆。等你和 PR 聊天或反馈时，它会蒸馏出候选放这里。
           </p>
         )}
       </div>

@@ -2,108 +2,414 @@
 @import 'tailwindcss-uikit-colors/selector.css';
 @import 'tailwindcss';
 
-@custom-variant dark (&:is(.dark *));
+/* 暗色由 layout.tsx 的 themeScript 写到 data-theme 上;同时兼容 .dark 类名 */
+@custom-variant dark (&:is(.dark *, [data-theme="dark"] *));
 
+/* ───────────────────────────────────────────────────────────────────────────
+   1. pr-ui 设计令牌
+   四个角色:纸 / 墨(一种颜色,alpha 分层) / 讯号(全站唯一彩色,只表状态) / 警示。
+   暗色不是第二套皮肤,是同一组变量换值 —— 下面所有组件都不写第二套样式。
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  --pr-bg: #ffffff;
+  --pr-canvas: #f4f4f5;
+  --pr-canvas-dot: #d4d4d8;
+  --pr-text: #111114;          /* 墨 100%  18.9:1  正文 */
+  --pr-text-2: #545456;        /* 墨  72%   7.6:1  次级文字、标签 */
+  --pr-muted: #707072;         /* 墨  60%   4.9:1  元信息下限,再浅 11px 就读不清 */
+  --pr-line: #ececee;
+  --pr-line-strong: #e0e0e3;
+  --pr-sel: #f0f0f2;
+  --pr-card: #f4f4f5;
+  --pr-accent: #a3e635;        /* 全站唯一彩色:在线 / 已完成 / 你在这里 */
+  --pr-accent-ink: #1a2e05;
+  --pr-danger: #d92d20;        /* 只在出错时出现 */
+  --pr-glass: rgba(255, 255, 255, .78);
+  --pr-shadow-card: 0 0 0 1px var(--pr-line-strong), 0 2px 5px rgba(0, 0, 0, .14);
+  --pr-r-card: 10px;
+  --pr-r-input: 14px;
+  --pr-r-ctl: 8px;
+  --pr-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --pr-ease: cubic-bezier(.16, 1, .3, 1);
+  color-scheme: light;
+}
+
+:root[data-theme='dark'], :root.dark {
+  --pr-bg: #0b0b0d;
+  --pr-canvas: #0b0b0d;
+  --pr-canvas-dot: #232327;
+  --pr-text: #f2f2f4;
+  --pr-text-2: #b1b1b3;
+  --pr-muted: #969698;
+  --pr-line: #232327;
+  --pr-line-strong: #2c2c31;
+  --pr-sel: #1c1c20;
+  --pr-card: #1e1e23;
+  --pr-glass: rgba(11, 11, 13, .72);
+  --pr-danger: #ff6b63;
+  --pr-shadow-card: 0 0 0 1px var(--pr-line), 0 2px 5px rgba(0, 0, 0, .5);
+  color-scheme: dark;
+}
+
+/* 存量的 shadcn 语义变量全部指向 pr-ui,改一处即全站生效。
+   主按钮 = 墨色实心,不是彩色;hover = 极浅选中底;边框 = 1px 线。 */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--pr-bg);
+  --color-foreground: var(--pr-text);
+  --color-card: var(--pr-bg);
+  --color-card-foreground: var(--pr-text);
+  --color-popover: var(--pr-bg);
+  --color-popover-foreground: var(--pr-text);
+  --color-primary: var(--pr-text);
+  --color-primary-foreground: var(--pr-bg);
+  --color-secondary: var(--pr-sel);
+  --color-secondary-foreground: var(--pr-text);
+  --color-muted: var(--pr-canvas);
+  --color-muted-foreground: var(--pr-text-2);
+  --color-accent: var(--pr-sel);
+  --color-accent-foreground: var(--pr-text);
+  --color-destructive: var(--pr-danger);
+  --color-destructive-foreground: var(--pr-bg);
+  --color-border: var(--pr-line);
+  --color-input: var(--pr-line-strong);
+  --color-ring: var(--pr-text-2);
+  --color-sidebar: var(--pr-bg);
+  --color-sidebar-foreground: var(--pr-text);
+  --color-sidebar-primary: var(--pr-text);
+  --color-sidebar-primary-foreground: var(--pr-bg);
+  --color-sidebar-accent: var(--pr-sel);
+  --color-sidebar-accent-foreground: var(--pr-text);
+  --color-sidebar-border: var(--pr-line);
+  --color-sidebar-ring: var(--pr-text-2);
+
+  /* 字阶:基准 14,层级靠字号与留白,不靠再加一档灰 */
+  --text-xs: 11px;
+  --text-xs--line-height: 1.5;
+  --text-sm: 13.5px;
+  --text-sm--line-height: 1.6;
+  --text-base: 14px;
+  --text-base--line-height: 1.78;
+  --text-lg: 20px;
+  --text-lg--line-height: 1.3;
+  --text-xl: 22px;
+  --text-xl--line-height: 1.3;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 1.1;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 1.1;
+
+  /* 一套圆角梯子,全站只有这一套 */
+  --radius-sm: 5px;
+  --radius-md: var(--pr-r-ctl);
+  --radius-lg: var(--pr-r-card);
+  --radius-xl: var(--pr-r-input);
 }
 
 @layer base {
   :root {
-    --radius: 0.5rem;
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --radius: var(--pr-r-card);
+    --background: var(--pr-bg);
+    --foreground: var(--pr-text);
+    --card: var(--pr-bg);
+    --card-foreground: var(--pr-text);
+    --popover: var(--pr-bg);
+    --popover-foreground: var(--pr-text);
+    --primary: var(--pr-text);
+    --primary-foreground: var(--pr-bg);
+    --secondary: var(--pr-sel);
+    --secondary-foreground: var(--pr-text);
+    --muted: var(--pr-canvas);
+    --muted-foreground: var(--pr-text-2);
+    --accent: var(--pr-sel);
+    --accent-foreground: var(--pr-text);
+    --destructive: var(--pr-danger);
+    --destructive-foreground: var(--pr-bg);
+    --border: var(--pr-line);
+    --input: var(--pr-line-strong);
+    --ring: var(--pr-text-2);
+    --sidebar: var(--pr-bg);
+    --sidebar-foreground: var(--pr-text);
+    --sidebar-primary: var(--pr-text);
+    --sidebar-primary-foreground: var(--pr-bg);
+    --sidebar-accent: var(--pr-sel);
+    --sidebar-accent-foreground: var(--pr-text);
+    --sidebar-border: var(--pr-line);
+    --sidebar-ring: var(--pr-text-2);
   }
 
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
 
-  html {
-    color-scheme: light;
-  }
+  body { @apply bg-background text-foreground antialiased; }
 
-  body {
-    @apply bg-background text-foreground antialiased;
-  }
+  input, textarea, select { font: inherit; }
+}
 
-  input,
-  textarea,
-  select {
-    font: inherit;
+/* ───────────────────────────────────────────────────────────────────────────
+   2. 根底座
+   ─────────────────────────────────────────────────────────────────────────── */
+.pr-ui {
+  color: var(--pr-text);
+  background: var(--pr-bg);
+  font-size: 14px;
+  line-height: 1.78;
+  /* 所有数字等宽:计数、时长、金额不会让整行左右抖 */
+  font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pr-ui ::selection { background: rgba(163, 230, 53, .4); }
+
+/* 层级差不靠"再加一个灰",字重统一 500,靠字号和留白 */
+.pr-ui .font-semibold,
+.pr-ui .font-bold { font-weight: 500 !important; }
+
+/* 11px 是亮色底上小字的下限,再小 + 浅灰是双重惩罚 */
+.pr-ui [class~='text-[10px]'],
+.pr-ui [class~='text-[9px]'] { font-size: 11px !important; }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   3. 存量适配层
+   项目有 30 个面板 / 6000 行沿用 shadcn 类名。逐个改既慢又容易漏,
+   所以在这一层把「卡片墙 / 彩色 / 发光 / 重阴影」统一降噪。
+   规则:新增组件请直接用第 4 节的 .pr-* 类,不要再写 Tailwind 彩色类。
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* 3.1 卡片墙 → 裸内容。面积最大的色块必须是内容,不是容器。
+      只留 .pr-surface 给真正需要"面"的东西(登录卡、弹层、Toast)。 */
+.pr-ui .bg-card:not(.pr-surface),
+.pr-ui .bg-popover:not(.pr-surface) {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+.pr-ui .rounded-lg.border:not(.pr-surface),
+.pr-ui .border.rounded-lg:not(.pr-surface),
+.pr-ui .rounded-md.border:not(.pr-surface),
+.pr-ui .border.rounded-md:not(.pr-surface),
+.pr-ui .rounded-xl.border:not(.pr-surface) {
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+/* 单层重阴影是廉价悬浮感;1px 描边 + 极淡柔影只给 .pr-surface */
+.pr-ui [class*='shadow-']:not(.pr-surface) { box-shadow: none !important; }
+
+/* 3.2 彩色归零 —— 整屏只剩一个彩色(--pr-accent)和出错时的 --pr-danger。
+      文字降为墨,边框降为线,浅底透明;实心色块(进度条/图表条)降为墨,保留形状。 */
+.pr-ui :is(
+  [class*='text-emerald-'], [class*='text-green-'], [class*='text-amber-'], [class*='text-orange-'],
+  [class*='text-red-'], [class*='text-rose-'], [class*='text-blue-'], [class*='text-sky-'],
+  [class*='text-indigo-'], [class*='text-violet-'], [class*='text-purple-'], [class*='text-fuchsia-'],
+  [class*='text-pink-'], [class*='text-teal-'], [class*='text-cyan-'], [class*='text-lime-']
+) { color: var(--pr-text) !important; }
+
+.pr-ui :is(
+  [class*='border-emerald-'], [class*='border-green-'], [class*='border-amber-'], [class*='border-orange-'],
+  [class*='border-red-'], [class*='border-rose-'], [class*='border-blue-'], [class*='border-sky-'],
+  [class*='border-indigo-'], [class*='border-violet-'], [class*='border-purple-'], [class*='border-pink-'],
+  [class*='border-teal-'], [class*='border-cyan-']
+) { border-color: var(--pr-line-strong) !important; }
+
+.pr-ui :is(
+  [class*='bg-emerald-'], [class*='bg-green-'], [class*='bg-amber-'], [class*='bg-orange-'],
+  [class*='bg-red-'], [class*='bg-rose-'], [class*='bg-blue-'], [class*='bg-sky-'],
+  [class*='bg-indigo-'], [class*='bg-violet-'], [class*='bg-purple-'], [class*='bg-fuchsia-'],
+  [class*='bg-pink-'], [class*='bg-teal-'], [class*='bg-cyan-'], [class*='bg-lime-'],
+  [class*='from-emerald-'], [class*='from-blue-'], [class*='from-violet-'], [class*='from-amber-'],
+  [class*='to-emerald-'], [class*='to-blue-'], [class*='to-violet-'], [class*='to-amber-']
+) { background-color: transparent !important; }
+
+/* 实心色块(bar / 图表条)改墨色,形状仍在,灰度下也读得出来 */
+.pr-ui :is(
+  [class~='bg-emerald-400'], [class~='bg-emerald-500'], [class~='bg-emerald-600'],
+  [class~='bg-amber-400'], [class~='bg-amber-500'], [class~='bg-amber-600'],
+  [class~='bg-red-400'], [class~='bg-red-500'], [class~='bg-red-600'],
+  [class~='bg-blue-400'], [class~='bg-blue-500'], [class~='bg-blue-600'],
+  [class~='bg-violet-500'], [class~='bg-sky-500']
+) { background-color: var(--pr-text-2) !important; }
+
+/* 彩色胶囊徽章 → 中性小标签。状态交给 pr-status-dot 的形状,不靠颜色 */
+.pr-ui [class*='rounded-full'][class*='px-2'] {
+  border-radius: 5px !important;
+  border: 1px solid var(--pr-line-strong) !important;
+  background-color: transparent !important;
+  color: var(--pr-text-2) !important;
+  font-size: 11px !important;
+  padding-top: 1px !important;
+  padding-bottom: 1px !important;
+}
+
+/* 3.3 焦点:描边压深一格,不发光。整个表单只有一处会变,视线自然知道在哪 */
+.pr-ui :is(input, select, textarea):focus {
+  outline: none;
+  border-color: var(--pr-text-2) !important;
+  box-shadow: none !important;
+}
+.pr-ui :is(input, select, textarea):focus-visible {
+  border-color: var(--pr-text) !important;
+  box-shadow: none !important;
+}
+.pr-ui button:focus-visible,
+.pr-ui a:focus-visible { outline: 1px solid var(--pr-text-2); outline-offset: 2px; }
+
+/* 3.4 动效:禁止 transition: all —— 指名属性 */
+.pr-ui .transition-all {
+  transition-property: background-color, border-color, color, opacity, transform !important;
+}
+/* 弹层进入用 expo-out,不用 spring(图层出现不该过冲) */
+.pr-ui .pr-toast { transition: opacity .2s var(--pr-ease), transform .2s var(--pr-ease); }
+
+/* 3.4b 表单错误双信号:红字 + 描边变警示色,整屏只有一处会变 */
+.pr-ui :is(input, select, textarea)[aria-invalid='true'] { border-color: var(--pr-danger) !important; }
+
+/* 3.5 表格:去竖线、表头不加重底色、数字右对齐等宽 */
+.pr-ui table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.pr-ui table :is(th, td) { border-left: 0 !important; border-right: 0 !important; }
+.pr-ui table th {
+  font-size: 11px; font-weight: 600; color: var(--pr-text-2);
+  text-align: left; border-bottom: 1px solid var(--pr-line-strong);
+}
+.pr-ui table td { border-bottom: 1px solid var(--pr-line); }
+
+/* 3.6 顶栏毛玻璃:两层模糊叠一起会脏,只给顶栏 */
+.pr-ui .backdrop-blur { backdrop-filter: blur(16px) saturate(1.5); -webkit-backdrop-filter: blur(16px) saturate(1.5); }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   4. pr-ui 元件(新代码直接用这些)
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* 面:1px 描边 + 极小偏移柔影,不靠阴影浓度 */
+.pr-ui .pr-surface {
+  background: var(--pr-bg) !important;
+  border: 0 !important;
+  border-radius: var(--pr-r-card) !important;
+  box-shadow: var(--pr-shadow-card) !important;
+}
+.pr-ui .pr-glass {
+  background: var(--pr-glass) !important;
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+}
+
+/* 画布:点阵给"可摊开的桌面"触感。soft 版点极淡,用于数据密集区 */
+.pr-ui .pr-canvas {
+  background: var(--pr-canvas) radial-gradient(var(--pr-canvas-dot) 1px, transparent 1px) 0 0 / 16px 16px !important;
+}
+.pr-ui .pr-canvas-soft {
+  background: var(--pr-bg) radial-gradient(var(--pr-line) 1px, transparent 1px) 0 0 / 16px 16px !important;
+}
+
+/* 字阶 */
+.pr-ui .pr-body  { font-size: 14px;   line-height: 1.78; color: var(--pr-text); }
+.pr-ui .pr-title { font-size: 14px;   line-height: 1.4;  font-weight: 500; letter-spacing: -.01em; }
+.pr-ui .pr-label { font-size: 11px;   line-height: 1.4;  font-weight: 600; color: var(--pr-text-2); }
+.pr-ui .pr-meta  { font-size: 11px;   line-height: 1.5;  color: var(--pr-muted); letter-spacing: .2px; }
+.pr-ui .pr-h1    { font-size: 22px;   line-height: 1.3;  font-weight: 500; letter-spacing: -.01em; }
+
+/* KPI:数字第一,不要彩色底块 / 圆环 */
+.pr-ui .pr-kpi {
+  font-size: 30px; line-height: 1.1; font-weight: 500; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--pr-text);
+}
+.pr-ui .pr-kpi-label { font-size: 11px; font-weight: 600; color: var(--pr-muted); margin-top: 4px; }
+
+/* 状态点:全站唯一彩色。离线/出错用形状(空心)/警示色,不只靠颜色 */
+.pr-ui .pr-status-dot {
+  width: 6px; height: 6px; border-radius: 9999px; flex: none;
+  background: var(--pr-accent); display: inline-block;
+}
+.pr-ui .pr-status-dot--off {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--pr-text-2);
+}
+.pr-ui .pr-status-dot--warn { background: var(--pr-danger); }
+.pr-ui .pr-status-dot--live { animation: prBreath 4.5s ease-in-out infinite; }
+
+/* 列表:用线分隔,不用卡片 */
+.pr-ui .pr-list { display: flex; flex-direction: column; }
+.pr-ui .pr-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 0; border: 0; border-bottom: 1px solid var(--pr-line);
+  border-radius: 0; text-align: left; color: var(--pr-text);
+  background: none; font: inherit; width: 100%;
+  transition: background-color .18s;
+}
+.pr-ui .pr-row:last-child { border-bottom: 0; }
+.pr-ui a.pr-row:hover, .pr-ui button.pr-row:hover { background: var(--pr-sel); }
+.pr-ui .pr-row.pr-nav-idle { color: var(--pr-text-2); }
+.pr-ui .pr-row-main { flex: 1; min-width: 0; }
+.pr-ui .pr-row-end { flex: none; display: flex; align-items: center; gap: 8px; }
+
+/* 字段:聚焦只压描边 */
+.pr-ui .pr-field {
+  background: var(--pr-bg);
+  border: 1px solid var(--pr-line-strong);
+  border-radius: var(--pr-r-input);
+  transition: border-color .2s;
+}
+.pr-ui .pr-field:focus-within { border-color: var(--pr-text-2); }
+.pr-ui :is(input, textarea)::placeholder { color: var(--pr-muted); }
+
+/* 按钮:主按钮深色实心,彩色留给状态 */
+.pr-ui .pr-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; padding: 0 12px;
+  border: 1px solid var(--pr-line-strong); border-radius: var(--pr-r-ctl);
+  background: var(--pr-bg); color: var(--pr-text);
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: background-color .18s, border-color .18s, transform .25s var(--pr-spring);
+}
+.pr-ui .pr-btn:hover { background: var(--pr-sel); }
+.pr-ui .pr-btn:active { transform: scale(.97); }
+.pr-ui .pr-btn[disabled] { opacity: .4; pointer-events: none; }
+.pr-ui .pr-btn-primary { background: var(--pr-text); border-color: var(--pr-text); color: var(--pr-bg); }
+.pr-ui .pr-btn-primary:hover { background: var(--pr-text); opacity: .88; }
+.pr-ui .pr-btn-danger { color: var(--pr-danger); }
+
+/* 标签 / 计数 */
+.pr-ui .pr-tag {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 6px;
+  border: 1px solid var(--pr-line-strong); border-radius: 5px;
+  font-size: 11px; font-weight: 500; color: var(--pr-text-2);
+}
+
+/* 进度条:一条墨色,不用彩色分级 */
+.pr-ui .pr-bar { height: 2px; background: var(--pr-line); border-radius: 0; overflow: hidden; }
+.pr-ui .pr-bar > i { display: block; height: 100%; background: var(--pr-text-2); }
+
+/* 空态:一句话 + 一个动作,不给插画 */
+.pr-ui .pr-empty {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+  padding: 40px 0; color: var(--pr-text-2); font-size: 14px; line-height: 1.7;
+}
+.pr-ui .pr-empty .pr-empty-line { color: var(--pr-text); }
+
+/* 骨架屏:形状跟真实内容一致,不写"加载中…" */
+.pr-ui .pr-skeleton {
+  background: var(--pr-sel); border-radius: 4px;
+  animation: prPulse 1.6s ease-in-out infinite;
+}
+
+.pr-ui .pr-divider { height: 1px; background: var(--pr-line); border: 0; margin: 0; }
+.pr-ui .pr-scroll { scrollbar-width: none; }
+.pr-ui .pr-scroll::-webkit-scrollbar { display: none; }
+
+/* 动效:只做入场与呼吸,其余不做 */
+.pr-ui .pr-enter { animation: prIn .5s var(--pr-spring) both; }
+@keyframes prIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes prBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+@keyframes prPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-ui *, .pr-ui *::before, .pr-ui *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
   }
 }
 
 .scrollbar-subtle {
   scrollbar-width: thin;
-  scrollbar-color: rgb(142 142 147 / 35%) transparent;
+  scrollbar-color: var(--pr-line-strong) transparent;
 }
-
-.scrollbar-subtle::-webkit-scrollbar {
-  height: 8px;
-  width: 8px;
-}
-
-.scrollbar-subtle::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scrollbar-subtle::-webkit-scrollbar-thumb {
-  border-radius: 9999px;
-  background-color: rgb(142 142 147 / 35%);
-}
+.scrollbar-subtle::-webkit-scrollbar { height: 8px; width: 8px; }
+.scrollbar-subtle::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-subtle::-webkit-scrollbar-thumb { border-radius: 9999px; background-color: var(--pr-line-strong); }
