@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -8,7 +8,6 @@ import {
   Clock,
   Footprints,
   Globe,
-  LayoutDashboard,
   LogOut,
   Settings,
   UserRound,
@@ -49,19 +48,21 @@ export function DashboardView({ settings }: DashboardViewProps) {
   const [monitor, setMonitor] = useState<MonitorData | null>(null)
   const [loadingStats, setLoadingStats] = useState(true)
   const [statsError, setStatsError] = useState<string | null>(null)
+  // Reason: 用 ref 记住"是否拿到过数据"。原写法在 setStats 的 updater 里再调
+  // setLoadingStats(true) —— updater 在渲染阶段才执行,会把随后 setLoadingStats(false)
+  // 覆盖成 true,概览页就永远停在骨架屏。
+  const hasStatsRef = useRef(false)
 
   const fetchStats = async () => {
     // Reason: 仅首次（无数据）显示加载态；30s 轮询时保留已渲染内容，避免概览页周期性闪烁
-    setStats(prev => {
-      if (prev === null) setLoadingStats(true)
-      return prev
-    })
+    if (!hasStatsRef.current) setLoadingStats(true)
     try {
       const [statsRes, monitorRes] = await Promise.all([
         fetch('/api/stats', { cache: 'no-store' }).then(r => r.json()),
         fetch('/api/monitor', { cache: 'no-store' }).then(r => r.json()),
       ])
       setStats(statsRes.stats)
+      hasStatsRef.current = true
       setSyncStatus(statsRes.syncStatus)
       setMonitor(monitorRes)
       setStatsError(null)
@@ -79,19 +80,16 @@ export function DashboardView({ settings }: DashboardViewProps) {
   }, [])
 
   return (
-    <div className="bg-muted/40 text-foreground min-h-dvh min-[520px]:pl-60">
-      <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border border-b min-[520px]:fixed min-[520px]:inset-y-0 min-[520px]:left-0 min-[520px]:z-40 min-[520px]:flex min-[520px]:w-60 min-[520px]:flex-col min-[520px]:border-r min-[520px]:border-b-0">
-        <div className="border-sidebar-border flex h-16 items-center gap-3 border-b px-4">
-          <span className="bg-primary text-primary-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-md">
-            <LayoutDashboard className="h-5 w-5" />
-          </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold">RunPaceFlow</h1>
-            <p className="text-muted-foreground truncate text-xs">运维控制台</p>
-          </div>
+    <div className="min-h-dvh min-[520px]:pl-60">
+      <aside className="border-b min-[520px]:fixed min-[520px]:inset-y-0 min-[520px]:left-0 min-[520px]:z-40 min-[520px]:flex min-[520px]:w-60 min-[520px]:flex-col min-[520px]:border-r min-[520px]:border-b-0" style={{ borderColor: 'var(--pr-line)' }}>
+        {/* 品牌区:去掉深色方块 —— 最大的色块必须是内容,不是容器 */}
+        <div className="border-b px-5 py-5" style={{ borderColor: 'var(--pr-line)' }}>
+          <h1 className="pr-h1">RunPaceFlow</h1>
+          <p className="pr-meta mt-1">运维控制台</p>
         </div>
 
-        <nav className="scrollbar-subtle min-[520px]:flex-1 min-[520px]:overflow-y-auto p-3 space-y-1">
+        {/* 当前项用字重 + 状态点,不用底色块 */}
+        <nav className="pr-scroll min-[520px]:flex-1 min-[520px]:overflow-y-auto px-5 py-3">
           {([
             { id: 'overview' as Tab, icon: BarChart3, label: '概览' },
             { id: 'pr' as Tab, icon: Brain, label: 'PR 伙伴' },
@@ -106,64 +104,69 @@ export function DashboardView({ settings }: DashboardViewProps) {
               key={item.id}
               type="button"
               onClick={() => setTab(item.id)}
+              aria-current={tab === item.id ? 'page' : undefined}
               className={cn(
-                'flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors',
-                tab === item.id
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                'pr-row items-center gap-3 py-2.5 text-sm',
+                tab === item.id ? 'font-medium' : 'pr-nav-idle',
               )}
             >
-              <item.icon className="h-4 w-4 shrink-0" />
+              <span className={cn('flex h-1.5 w-1.5 shrink-0 items-center justify-center rounded-full', tab === item.id && 'pr-status-dot')} />
+              <item.icon className={cn('h-4 w-4 shrink-0', tab === item.id ? 'text-foreground' : 'text-muted-foreground')} />
               {item.label}
             </button>
           ))}
         </nav>
 
-        <div className="border-sidebar-border space-y-1 border-t p-3">
+        <div className="border-t px-5 py-3" style={{ borderColor: 'var(--pr-line)' }}>
           {/* Phoenix 是独立子域(自带登录),新标签打开 */}
           <a
             href="https://phoenix.razet.me"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm transition-colors"
+            className="pr-row pr-nav-idle items-center gap-3 py-2.5 text-sm"
           >
-            <Waypoints className="h-4 w-4" />
+            <span className="h-1.5 w-1.5 shrink-0" />
+            <Waypoints className="h-4 w-4 shrink-0 text-muted-foreground" />
             PR 链路追踪
           </a>
           <form action={logoutAction}>
-            <button
-              type="submit"
-              className="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm transition-colors"
-            >
-              <LogOut className="h-4 w-4" />
+            <button type="submit" className="pr-row pr-nav-idle items-center gap-3 py-2.5 text-sm">
+              <span className="h-1.5 w-1.5 shrink-0" />
+              <LogOut className="h-4 w-4 shrink-0 text-muted-foreground" />
               退出登录
             </button>
           </form>
         </div>
       </aside>
 
-      <main>
+      <main className="pr-canvas-soft min-h-dvh">
         {statsError && (
-          <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 sm:mx-6 lg:mx-8">
-            <span>数据加载失败：{statsError}</span>
+          <div className="mx-4 mt-4 flex items-center justify-between gap-3 border-b py-3 text-sm sm:mx-6 lg:mx-8" style={{ borderColor: 'var(--pr-line)' }}>
+            <span className="flex items-center gap-2">
+              <span className="pr-status-dot pr-status-dot--warn" />
+              数据加载失败：{statsError}
+            </span>
             <button
               type="button"
               onClick={fetchStats}
               disabled={loadingStats}
-              className="shrink-0 rounded-md border border-red-300 bg-background px-3 py-1 text-xs font-medium hover:bg-red-100 disabled:opacity-50 transition-colors"
+              className="pr-btn pr-btn-danger h-8 shrink-0 text-xs"
             >
               {loadingStats ? '重试中...' : '重试'}
             </button>
           </div>
         )}
-        {tab === 'overview' && <OverviewPanel stats={stats} syncStatus={syncStatus} monitor={monitor} loading={loadingStats} />}
-        {tab === 'pr' && <PrPanel />}
-        {tab === 'persona' && <PersonaPanel onOpenPr={() => setTab('pr')} />}
-        {tab === 'activities' && <ActivitiesPanel stats={stats} loading={loadingStats} />}
-        {tab === 'analytics' && <AnalyticsPanel />}
-        {tab === 'scheduler' && <SchedulerPanel />}
-        {tab === 'monitor' && <MonitorPanel monitor={monitor} loading={loadingStats} />}
-        {tab === 'settings' && <SettingsPanel settings={settings} />}
+        {/* key 让切换 tab 时只做一次 8px 位移入场,不叠 scale */}
+        <div key={tab} className="pr-enter">
+          {tab === 'overview' && <OverviewPanel stats={stats} syncStatus={syncStatus} monitor={monitor} loading={loadingStats} />}
+          {tab === 'pr' && <PrPanel />}
+          {tab === 'persona' && <PersonaPanel onOpenPr={() => setTab('pr')} />}
+          {tab === 'activities' && <ActivitiesPanel stats={stats} loading={loadingStats} />}
+          {tab === 'analytics' && <AnalyticsPanel />}
+          {tab === 'scheduler' && <SchedulerPanel />}
+          {tab === 'monitor' && <MonitorPanel monitor={monitor} loading={loadingStats} />}
+          {tab === 'settings' && <SettingsPanel settings={settings} />}
+        </div>
       </main>
     </div>
   )

@@ -92,10 +92,11 @@ function ToastViewport({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: 
   )
 }
 
-const VARIANT_STYLE: Record<ToastVariant, { container: string; icon: React.ComponentType<{ className?: string }> }> = {
-  success: { container: 'border-emerald-200 bg-emerald-50 text-emerald-900', icon: CheckCircle2 },
-  error: { container: 'border-red-200 bg-red-50 text-red-900', icon: XCircle },
-  info: { container: 'border-blue-200 bg-blue-50 text-blue-900', icon: Info },
+// 三种提示靠图标形状 + 状态点区分,不靠底色。警示色只在出错时出现。
+const VARIANT_STYLE: Record<ToastVariant, { dot: string; icon: React.ComponentType<{ className?: string }> }> = {
+  success: { dot: '', icon: CheckCircle2 },
+  error: { dot: 'pr-status-dot--warn', icon: XCircle },
+  info: { dot: 'pr-status-dot--off', icon: Info },
 }
 
 function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: string) => void }) {
@@ -121,12 +122,12 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: str
       role="status"
       aria-live="polite"
       className={cn(
-        'pointer-events-auto flex items-start gap-2 rounded-md border px-4 py-3 text-sm shadow-md transition-all duration-200 ease-out',
-        style.container,
+        'pr-surface pr-toast pointer-events-auto flex items-start gap-2.5 px-4 py-3 text-sm',
         visible ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
       )}
     >
-      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <span className={cn('pr-status-dot mt-1.5', style.dot)} />
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="flex-1 break-words">{toast.message}</span>
       <button
         type="button"

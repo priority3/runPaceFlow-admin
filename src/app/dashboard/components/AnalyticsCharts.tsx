@@ -22,7 +22,7 @@ export function PerformanceSection({ data }: { data: AnalyticsData }) {
             {avgLoadTime != null ? `${avgLoadTime}ms` : '-'}
           </p>
           <p className="text-muted-foreground text-[10px] mt-0.5">
-            {avgLoadTime != null ? (avgLoadTime < 1000 ? '优秀' : avgLoadTime < 2000 ? '良好' : '偏慢') : '暂无数据'}
+            {avgLoadTime != null ? (avgLoadTime < 1000 ? '优秀' : avgLoadTime < 2000 ? '良好' : '偏慢') : '还没有采样'}
           </p>
         </div>
         <div className="bg-card rounded-lg border p-4 shadow-sm">
@@ -31,7 +31,7 @@ export function PerformanceSection({ data }: { data: AnalyticsData }) {
             {p95LoadTime != null ? `${p95LoadTime}ms` : '-'}
           </p>
           <p className="text-muted-foreground text-[10px] mt-0.5">
-            {p95LoadTime != null ? (p95LoadTime < 2000 ? '优秀' : p95LoadTime < 4000 ? '良好' : '需优化') : '暂无数据'}
+            {p95LoadTime != null ? (p95LoadTime < 2000 ? '优秀' : p95LoadTime < 4000 ? '良好' : '需优化') : '还没有采样'}
           </p>
         </div>
         <div className="bg-card rounded-lg border p-4 shadow-sm">
@@ -40,7 +40,7 @@ export function PerformanceSection({ data }: { data: AnalyticsData }) {
             {avgScrollDepth != null ? `${avgScrollDepth.toFixed(0)}%` : '-'}
           </p>
           <p className="text-muted-foreground text-[10px] mt-0.5">
-            {avgScrollDepth != null ? (avgScrollDepth > 70 ? '用户参与度高' : avgScrollDepth > 40 ? '一般' : '内容吸引力不足') : '暂无数据'}
+            {avgScrollDepth != null ? (avgScrollDepth > 70 ? '用户参与度高' : avgScrollDepth > 40 ? '一般' : '内容吸引力不足') : '还没有采样'}
           </p>
         </div>
       </div>
@@ -59,7 +59,7 @@ export function DeviceBrowserOSSection({ data }: { data: AnalyticsData }) {
           <h3 className="mb-3 text-sm font-semibold">设备类型</h3>
           <div className="bg-card rounded-lg border p-4 shadow-sm">
             {data.devices.length === 0 ? (
-              <div className="text-muted-foreground py-4 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground py-4 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="space-y-3">
                 {data.devices.map(d => {
@@ -87,7 +87,7 @@ export function DeviceBrowserOSSection({ data }: { data: AnalyticsData }) {
           <h3 className="mb-3 text-sm font-semibold">浏览器</h3>
           <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
             {data.browsers.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="divide-y">
                 {data.browsers.slice(0, 8).map(b => (
@@ -109,7 +109,7 @@ export function DeviceBrowserOSSection({ data }: { data: AnalyticsData }) {
           <h3 className="mb-3 text-sm font-semibold">操作系统</h3>
           <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
             {data.os.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="divide-y">
                 {data.os.slice(0, 8).map(o => (
@@ -141,7 +141,7 @@ export function GeoSection({ data }: { data: AnalyticsData }) {
           <h3 className="mb-3 text-sm font-semibold">国家/地区分布</h3>
           <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
             {data.countries.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="divide-y">
                 {data.countries.map(c => {
@@ -168,7 +168,7 @@ export function GeoSection({ data }: { data: AnalyticsData }) {
           <h3 className="mb-3 text-sm font-semibold">城市分布</h3>
           <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
             {data.cities.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="divide-y">
                 {data.cities.map(c => {
@@ -203,7 +203,7 @@ export function HourlyHeatMap({ data }: { data: AnalyticsData }) {
         <h3 className="mb-3 text-sm font-semibold">访问时段分布 (近 7 天)</h3>
         <div className="bg-card rounded-lg border p-4 shadow-sm">
           {data.hourly.every(h => h.views === 0) ? (
-            <div className="text-muted-foreground py-8 text-center text-sm">暂无数据</div>
+            <div className="text-muted-foreground py-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
           ) : (
             <div className="flex items-end gap-0.5 h-32">
               {data.hourly.map(h => {
@@ -285,7 +285,7 @@ export function ExitPagesSection({ data }: { data: AnalyticsData }) {
       <h3 className="mb-3 text-sm font-semibold">退出页面 TOP 10</h3>
       <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
         {data.exitPages.length === 0 ? (
-          <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+          <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
         ) : (
           <div className="divide-y">
             {data.exitPages.map(ep => (
@@ -374,7 +374,7 @@ export function LanguageTimezoneSection({ data }: { data: AnalyticsData }) {
           <h3 className="mb-3 text-sm font-semibold">语言分布</h3>
           <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
             {data.languages.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="divide-y">
                 {data.languages.map(l => (
@@ -395,7 +395,7 @@ export function LanguageTimezoneSection({ data }: { data: AnalyticsData }) {
           <h3 className="mb-3 text-sm font-semibold">时区分布</h3>
           <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
             {data.timezones.length === 0 ? (
-              <div className="text-muted-foreground p-8 text-center text-sm">暂无数据</div>
+              <div className="text-muted-foreground p-8 text-center text-sm">这个范围里还没有数据，换个时间范围看看</div>
             ) : (
               <div className="divide-y">
                 {data.timezones.map(tz => (
@@ -435,13 +435,14 @@ export function PerformanceTrendSection({ data }: { data: PerformanceTrendData[]
     <CollapsibleSection title="性能趋势" defaultOpen={false}>
       <section>
         <div className="bg-card rounded-lg border p-4 shadow-sm">
-          <div className="flex items-center gap-4 mb-4 text-xs">
+          {/* 图例不用彩色:同一支墨,靠明度分主次 */}
+          <div className="mb-4 flex items-center gap-4 text-xs">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--pr-text-2)]" />
               平均加载时间
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--pr-line-strong)]" />
               P95 加载时间
             </span>
             <span className="text-muted-foreground">采样数显示在底部</span>
@@ -459,11 +460,11 @@ export function PerformanceTrendSection({ data }: { data: PerformanceTrendData[]
                   </div>
                   <div className="w-full flex gap-px items-end justify-center" style={{ height: '100px' }}>
                     <div
-                      className="bg-blue-500 rounded-t flex-1 max-w-[8px]"
+                      className="bg-[var(--pr-text-2)] rounded-t flex-1 max-w-[8px]"
                       style={{ height: `${Math.max(avgPct, 2)}%` }}
                     />
                     <div
-                      className="bg-amber-500 rounded-t flex-1 max-w-[8px]"
+                      className="bg-[var(--pr-line-strong)] rounded-t flex-1 max-w-[8px]"
                       style={{ height: `${Math.max(p95Pct, 2)}%` }}
                     />
                   </div>

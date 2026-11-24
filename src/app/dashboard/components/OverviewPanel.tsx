@@ -1,14 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Activity, Footprints, Shield, Target, Timer, TrendingUp } from 'lucide-react'
+import { Footprints, Target, Timer, TrendingUp } from 'lucide-react'
 
 import type { SyncStatus } from '@/lib/activity/dashboard-stats'
 import type { MonitorData } from '../DashboardView'
-import { cn } from '@/lib/utils'
 
 import { ConnectionHealthPanel } from './ConnectionHealthPanel'
-import { LoadingState, ServiceCard, StatCard, SyncCard } from './shared'
+import { LoadingState, PanelHeader, ServiceCard, StatCard, SyncCard } from './shared'
 
 interface ActivityStats {
   total: { activities: number; distance: number; duration: number; elevation: number; averagePace: number }
@@ -64,27 +63,18 @@ function HealthScore({ monitor, syncStatus }: { monitor: MonitorData | null; syn
 
   const percentage = checks > 0 ? Math.round((score / (checks * 25)) * 100) : 0
   const label = percentage === 100 ? '健康' : percentage >= 75 ? '良好' : percentage >= 50 ? '一般' : percentage > 0 ? '异常' : '检测中'
-  const color = percentage === 100 ? 'text-emerald-600' : percentage >= 75 ? 'text-emerald-500' : percentage >= 50 ? 'text-amber-500' : 'text-red-500'
 
+  // 数字第一,一条墨色进度线表比例。不用彩色分级 —— 颜色只留给"状态成立"。
   return (
-    <div className="bg-card rounded-lg border p-4 shadow-sm">
-      <div className="flex items-center gap-2 mb-3">
-        <Shield className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">系统健康度</span>
+    <div className="border-b pb-5" style={{ borderColor: 'var(--pr-line)' }}>
+      <div className="pr-kpi-label">系统健康度</div>
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className="pr-kpi">{percentage}</span>
+        <span className="pr-meta">/ 100 · {label}</span>
       </div>
-      <div className="flex items-baseline gap-2 mb-2">
-        <span className={cn('text-3xl font-bold tabular-nums', color)}>{percentage}</span>
-        <span className="text-muted-foreground text-sm">/ 100</span>
+      <div className="pr-bar mt-3">
+        <i style={{ width: `${percentage}%` }} />
       </div>
-      <div className="bg-muted h-2 rounded-full overflow-hidden mb-2">
-        <div
-          className={cn('h-full rounded-full transition-all duration-500',
-            percentage === 100 ? 'bg-emerald-500' : percentage >= 75 ? 'bg-emerald-400' : percentage >= 50 ? 'bg-amber-400' : 'bg-red-400'
-          )}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-      <p className="text-muted-foreground text-xs">{label}</p>
     </div>
   )
 }
@@ -110,9 +100,7 @@ export function OverviewPanel({
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4">
-        <h2 className="text-xl font-semibold">概览</h2>
-      </header>
+      <PanelHeader title="概览" />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Footprints} label="总活动" value={String(stats?.total.activities ?? 0)} />

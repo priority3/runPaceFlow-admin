@@ -57,7 +57,7 @@ export function ClickHeatmapPanel() {
             value={selectedPath}
             onChange={(e) => setSelectedPath(e.target.value)}
             placeholder="输入页面路径"
-            className="border-input bg-background placeholder:text-muted-foreground focus:border-ring h-7 w-40 rounded-md border px-2 text-xs shadow-sm outline-none focus:ring-[3px]"
+            className="pr-field h-7 w-40 px-2 text-xs outline-none"
           />
         </div>
 

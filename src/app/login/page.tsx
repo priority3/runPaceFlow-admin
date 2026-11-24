@@ -9,7 +9,7 @@ export default async function LoginPage() {
   }
 
   return (
-    <main className="bg-muted/40 flex min-h-dvh items-center justify-center px-4">
+    <main className="pr-canvas flex min-h-dvh items-center justify-center px-4">
       <LoginForm />
     </main>
   )
