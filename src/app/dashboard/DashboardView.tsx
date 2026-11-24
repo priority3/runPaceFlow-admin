@@ -17,7 +17,6 @@ import {
 import { logoutAction } from '@/app/actions'
 import type { ActivityStats, SyncStatus } from '@/lib/activity/dashboard-stats'
 import type { StoredSetting } from '@/lib/store'
-import { cn } from '@/lib/utils'
 
 import { ActivitiesPanel } from './components/ActivitiesPanel'
 import { AnalyticsPanel } from './components/AnalyticsPanel'
@@ -88,8 +87,9 @@ export function DashboardView({ settings }: DashboardViewProps) {
           <p className="pr-meta mt-1">运维控制台</p>
         </div>
 
-        {/* 当前项用字重 + 状态点,不用底色块 */}
-        <nav className="pr-scroll min-[520px]:flex-1 min-[520px]:overflow-y-auto px-5 py-3">
+        {/* 导航用专用 .pr-nav-item:无逐行横线、无独立状态点列。
+            选中态交给 aria-current —— 字重 + 墨色 + 一条贴左缘的竖线。 */}
+        <nav className="pr-nav pr-scroll min-[520px]:flex-1 min-[520px]:overflow-y-auto py-3">
           {([
             { id: 'overview' as Tab, icon: BarChart3, label: '概览' },
             { id: 'pr' as Tab, icon: Brain, label: 'PR 伙伴' },
@@ -105,34 +105,28 @@ export function DashboardView({ settings }: DashboardViewProps) {
               type="button"
               onClick={() => setTab(item.id)}
               aria-current={tab === item.id ? 'page' : undefined}
-              className={cn(
-                'pr-row items-center gap-3 py-2.5 text-sm',
-                tab === item.id ? 'font-medium' : 'pr-nav-idle',
-              )}
+              className="pr-nav-item"
             >
-              <span className={cn('flex h-1.5 w-1.5 shrink-0 items-center justify-center rounded-full', tab === item.id && 'pr-status-dot')} />
-              <item.icon className={cn('h-4 w-4 shrink-0', tab === item.id ? 'text-foreground' : 'text-muted-foreground')} />
+              <item.icon className="pr-nav-icon" />
               {item.label}
             </button>
           ))}
         </nav>
 
-        <div className="border-t px-5 py-3" style={{ borderColor: 'var(--pr-line)' }}>
+        <div className="pr-nav-tools border-t py-3" style={{ borderColor: 'var(--pr-line)' }}>
           {/* Phoenix 是独立子域(自带登录),新标签打开 */}
           <a
             href="https://phoenix.razet.me"
             target="_blank"
             rel="noopener noreferrer"
-            className="pr-row pr-nav-idle items-center gap-3 py-2.5 text-sm"
+            className="pr-nav-item"
           >
-            <span className="h-1.5 w-1.5 shrink-0" />
-            <Waypoints className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <Waypoints className="pr-nav-icon" />
             PR 链路追踪
           </a>
           <form action={logoutAction}>
-            <button type="submit" className="pr-row pr-nav-idle items-center gap-3 py-2.5 text-sm">
-              <span className="h-1.5 w-1.5 shrink-0" />
-              <LogOut className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <button type="submit" className="pr-nav-item">
+              <LogOut className="pr-nav-icon" />
               退出登录
             </button>
           </form>
